@@ -126,9 +126,21 @@ function buildBell(d) {
   const mx = xPx(mean).toFixed(1);
   grid += `<line x1="${mx}" y1="0" x2="${mx}" y2="${baseY}" class="bell-mean"/>`;
 
+  // IV smile (Vol Settle) — per-strike implied vol, own-scaled into the upper band
+  const ivRows = rows.filter((r) => r.iv > 0);
+  let ivLine = '';
+  if (ivRows.length > 1) {
+    const ivs = ivRows.map((r) => r.iv);
+    const ivMin = Math.min(...ivs), ivMax = Math.max(...ivs), ivRange = (ivMax - ivMin) || 1;
+    const ivY = (v) => 14 + (1 - (v - ivMin) / ivRange) * 120;   // higher IV → nearer the top
+    const pts = ivRows.map((r) => `${xPx(r.strike).toFixed(1)},${ivY(r.iv).toFixed(1)}`).join(' ');
+    ivLine = `<polyline points="${pts}" class="bell-iv" vector-effect="non-scaling-stroke"/>`;
+  }
+
   return `<svg viewBox="0 0 ${W} 200" preserveAspectRatio="none" class="bell-svg">
     ${grid}${bars}
     <path d="${path}" class="bell-curve" vector-effect="non-scaling-stroke"/>
+    ${ivLine}
     <line x1="0" y1="${baseY}" x2="${W}" y2="${baseY}" class="bell-base"/>
   </svg>`;
 }
@@ -136,12 +148,19 @@ function buildBell(d) {
 function renderBell(d) {
   $('bell').innerHTML = buildBell(d);
   const sd = sigmaOf(d), mean = d.future;
-  if (!sd) { $('bell-axis').innerHTML = ''; return; }
+  if (!sd) { $('bell-axis').innerHTML = ''; $('bell-cap').innerHTML = ''; return; }
   $('bell-axis').innerHTML = [-3, -2, -1, 0, 1, 2, 3].map((m) => {
     const pos = (3.5 + m) / 7 * 100;
     const lbl = m === 0 ? 'μ' : (m > 0 ? '+' : '') + m + 'σ';
     return `<span style="left:${pos}%">${lbl}<br><i>${Math.round(mean + m * sd)}</i></span>`;
   }).join('');
+
+  const ivs = d.rows.map((r) => r.iv).filter((v) => v > 0);
+  const ivTxt = ivs.length ? `${(Math.min(...ivs) * 100).toFixed(1)}–${(Math.max(...ivs) * 100).toFixed(1)}%` : '—';
+  $('bell-cap').innerHTML =
+    `<span>━ Distribution</span>` +
+    `<span class="iv-key">┈ IV smile (Vol Settle) ${ivTxt}</span>` +
+    `<span><b style="color:var(--call)">▮</b> Call · <b style="color:var(--put)">▮</b> Put</span>`;
 }
 
 // ── ladder: single dataset (OI or Intraday) ──
@@ -296,8 +315,9 @@ function mountTradingView() {
   c.appendChild(s);
 }
 
-// ── auto-refresh (every 60s) ──
+// ── auto-refresh (every 60s, persisted, ON by default) ──
 function setAuto(on) {
+  localStorage.setItem('auto', on ? 'on' : 'off');
   if (state.timer) { clearInterval(state.timer); state.timer = null; }
   if (on) state.timer = setInterval(load, 60000);
 }
@@ -312,6 +332,15 @@ function init() {
   $('seg-intraday').addEventListener('click', () => setView('intraday'));
   $('seg-both').addEventListener('click', () => setView('both'));
   $('chk-auto').addEventListener('change', (e) => setAuto(e.target.checked));
+
+  // auto-refresh ON unless the user turned it off before
+  const autoOn = (localStorage.getItem('auto') || 'on') === 'on';
+  $('chk-auto').checked = autoOn;
+  setAuto(autoOn);
+
+  // always pull fresh data when the tab regains focus (open it daily → latest)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+
   load();
 }
 
