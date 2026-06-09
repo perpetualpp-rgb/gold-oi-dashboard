@@ -359,6 +359,38 @@ footer {
   color: var(--fg2);
 }
 
+/* ── AI PLAN ── */
+.plan-card {
+  background: var(--bg1);
+  border: 1px solid var(--line2);
+  border-left: 3px solid var(--put);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.plan-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.plan-title { font-family: var(--sans); font-size: 14px; font-weight: 600; }
+.plan-time { font-family: var(--mono); font-size: 10px; color: var(--fg2); }
+.plan-bias { font-family: var(--mono); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 5px; margin-left: 4px; }
+.plan-bias.b-long    { color: var(--up);   background: rgba(47,143,78,0.13); }
+.plan-bias.b-short   { color: var(--down); background: rgba(192,57,43,0.13); }
+.plan-bias.b-neutral { color: var(--fg2);  background: var(--bg2); }
+.plan-empty { font-family: var(--mono); font-size: 11.5px; color: var(--fg2); padding: 6px 0; line-height: 1.5; }
+.plan-headline { font-size: 13px; color: var(--fg0); margin-bottom: 9px; line-height: 1.55; }
+.plan-lvls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; font-family: var(--mono); font-size: 11px; }
+.plan-lbl { font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; }
+.plan-lbl.res { color: #fff;     background: var(--call); }
+.plan-lbl.sup { color: #3a2a00;  background: var(--put); }
+.plan-lvl { padding: 2px 7px; border-radius: 5px; background: var(--bg2); border: 1px solid var(--line); }
+.plan-lvl.res { border-color: var(--call); }
+.plan-lvl.sup { border-color: var(--put); }
+.plan-lvl i { font-style: normal; color: var(--fg2); font-size: 10px; }
+.plan-scen { margin: 7px 0 6px 18px; font-size: 12px; line-height: 1.6; }
+.plan-scen li { margin-bottom: 2px; }
+.plan-risk { font-family: var(--mono); font-size: 11px; color: var(--down); margin-top: 5px; }
+.plan-src { font-family: var(--mono); font-size: 9px; color: var(--fg3); margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); }
+
 /* ── SD GAUGE ── */
 .gauge-card {
   background: var(--bg1);

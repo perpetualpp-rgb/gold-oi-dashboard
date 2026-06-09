@@ -235,6 +235,48 @@ function render() {
   else renderLadder(primary);
 }
 
+// ── AI plan (generated 13:00 & 19:00 from The Invisible Money method) ──
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+function renderPlan(p) {
+  const el = $('plan');
+  if (!p || !p.updated_at) {
+    el.innerHTML =
+      `<div class="plan-head"><span class="plan-title">📋 แผนวันนี้</span></div>` +
+      `<div class="plan-empty">${esc((p && p.headline) || 'ยังไม่มีแผน — ระบบจะสร้างแผนอัตโนมัติเวลา 13:00 และ 19:00 (เวลาไทย)')}</div>`;
+    return;
+  }
+  const biasMap = { long: ['ขึ้น · Long', 'b-long'], short: ['ลง · Short', 'b-short'], neutral: ['ไซด์เวย์ · Neutral', 'b-neutral'] };
+  const [biasTxt, biasCls] = biasMap[p.bias] || biasMap.neutral;
+  const lvls = (arr, cls, label) => (arr && arr.length)
+    ? `<div class="plan-lvls"><span class="plan-lbl ${cls}">${label}</span>${arr.map((l) =>
+        `<span class="plan-lvl ${cls}">${fmt.px(l.price)}${l.note ? ` <i>${esc(l.note)}</i>` : ''}</span>`).join('')}</div>`
+    : '';
+  let when = '';
+  try { when = p.updated_at ? new Date(p.updated_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : ''; } catch (e) {}
+  el.innerHTML =
+    `<div class="plan-head">
+       <span class="plan-title">📋 แผนวันนี้ <span class="plan-bias ${biasCls}">${biasTxt}</span></span>
+       <span class="plan-time">รอบ ${esc(p.session || '')} · ${when}</span>
+     </div>` +
+    (p.headline ? `<div class="plan-headline">${esc(p.headline)}</div>` : '') +
+    lvls(p.resistance, 'res', 'แนวต้าน') +
+    lvls(p.support, 'sup', 'แนวรับ') +
+    (p.scenarios && p.scenarios.length ? `<ul class="plan-scen">${p.scenarios.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : '') +
+    (p.risk ? `<div class="plan-risk">⚠️ ${esc(p.risk)}</div>` : '') +
+    `<div class="plan-src">ที่มา: ${esc(p.source || 'The Invisible Money + OI/Vol')} · AI สร้างอัตโนมัติ ไม่ใช่คำแนะนำการลงทุน</div>`;
+}
+
+async function loadPlan() {
+  try {
+    const res = await fetch('plan.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) throw new Error('no plan');
+    renderPlan(await res.json());
+  } catch (e) {
+    renderPlan(null);
+  }
+}
+
 async function load() {
   setStatus('กำลังโหลด…');
   try {
@@ -251,6 +293,7 @@ async function load() {
   } catch (e) {
     setStatus('ดึงข้อมูลไม่สำเร็จ: ' + e.message, 'err');
   }
+  loadPlan();
 }
 
 // ── theme ──
