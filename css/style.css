@@ -441,7 +441,7 @@ footer {
   margin-bottom: 14px;
   box-shadow: var(--shadow);
 }
-.bell-svg { width: 100%; height: 168px; display: block; }
+.bell-svg { width: 100%; height: 240px; display: block; }
 .bell-curve { fill: none; stroke: var(--fg2); stroke-width: 1.4; opacity: 0.85; }
 .bell-base  { stroke: var(--line2); stroke-width: 1; }
 .bell-sig   { stroke: var(--line2); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6; }
@@ -483,4 +483,5 @@ footer {
   .row { grid-template-columns: 1fr 58px 1fr; }
   .ladder { max-height: 58vh; }
   .tv-frame { height: 440px; }
+  .bell-svg { height: 210px; }
 }
