@@ -455,6 +455,15 @@ footer {
 }
 .bell-tip b { font-weight: 600; }
 .bell-tip .t-mut { color: var(--fg2); }
+.bell-srctime {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; color: var(--fg2);
+  margin-bottom: 8px;
+}
+.srcdot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg3); flex-shrink: 0; }
+.srcdot.fresh { background: var(--up); box-shadow: 0 0 0 2px rgba(47,143,78,0.18); }
+.srcdot.ok    { background: var(--put); }
+.srcdot.stale { background: var(--down); }
 .bell-svg { width: 100%; height: 240px; display: block; }
 .bell-curve { fill: none; stroke: var(--fg2); stroke-width: 1.4; opacity: 0.85; }
 .bell-base  { stroke: var(--line2); stroke-width: 1; }

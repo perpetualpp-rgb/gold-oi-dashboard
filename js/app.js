@@ -8,6 +8,8 @@ const state = {
   data: { oi: null, intraday: null },
   theme: localStorage.getItem('theme') || 'light',
   timer: null,
+  dataTimeIso: null,                           // when pageth last pushed the data (GitHub commit time)
+  lastDataTimeFetch: 0,
 };
 
 const fmt = {
@@ -287,6 +289,33 @@ async function loadPlan() {
   }
 }
 
+// ── source-data freshness: when pageth last pushed OIData.txt (GitHub commit time) ──
+const DATA_COMMIT_API = 'https://api.github.com/repos/pageth/Vol2VolData/commits?path=OIData.txt&per_page=1';
+
+async function fetchDataTime() {
+  try {
+    const r = await fetch(DATA_COMMIT_API, { cache: 'no-store' });
+    if (!r.ok) return;                            // rate-limited/offline → keep last known
+    const j = await r.json();
+    const iso = j && j[0] && j[0].commit && j[0].commit.committer && j[0].commit.committer.date;
+    if (iso) { state.dataTimeIso = iso; renderDataTime(iso); }
+  } catch (e) { /* keep last */ }
+}
+
+function renderDataTime(iso) {
+  const el = $('data-time');
+  if (!el || !iso) return;
+  const t = new Date(iso);
+  const ict = t.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const mins = Math.round((Date.now() - t.getTime()) / 60000);
+  let rel = '', dot = '';
+  if (mins >= 0 && mins < 1440) {
+    rel = mins < 1 ? ' · เมื่อสักครู่' : ` · ${mins} นาทีที่แล้ว`;
+    dot = mins <= 15 ? 'fresh' : mins <= 60 ? 'ok' : 'stale';
+  }
+  el.innerHTML = `<span class="srcdot ${dot}"></span>ข้อมูล OI/Intraday จากต้นทาง (pageth) · อัปเดต ${ict} น.${rel}`;
+}
+
 async function load() {
   setStatus('กำลังโหลด…');
   try {
@@ -302,6 +331,12 @@ async function load() {
     $('data-stamp').textContent = 'sync ' + now;
   } catch (e) {
     setStatus('ดึงข้อมูลไม่สำเร็จ: ' + e.message, 'err');
+  }
+  // source-data freshness: re-render relative time every cycle; re-fetch commit time every 3 min
+  if (state.dataTimeIso) renderDataTime(state.dataTimeIso);
+  if (Date.now() - state.lastDataTimeFetch > 180000) {
+    state.lastDataTimeFetch = Date.now();
+    fetchDataTime();
   }
   loadPlan();
 }
