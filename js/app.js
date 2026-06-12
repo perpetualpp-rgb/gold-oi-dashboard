@@ -315,6 +315,18 @@ function renderPlan(p) {
   const fresh = planFreshness(p);
   const staleTxt = fresh.stale ? ` · <span class="plan-stale">⚠ ค้าง ${fresh.hrs} ชม. (push อาจพลาด)</span>` : '';
 
+  // day-over-day OI structure shifts (per the book's OI-change reading)
+  const oic = p.oi_change;
+  let oicHtml = '';
+  if (oic && oic.contract_changed) {
+    oicHtml = `<div class="plan-oic"><div class="plan-eh">📊 OI เปลี่ยนจากวันก่อน</div><div class="oic-row"><i>เปลี่ยนสัญญาใหม่ (rollover) — เทียบวันต่อวันไม่ได้</i></div></div>`;
+  } else if (oic && oic.top && oic.top.length) {
+    oicHtml = `<div class="plan-oic"><div class="plan-eh">📊 OI เปลี่ยนจากวันก่อน (เทียบ ${esc(oic.vs_date)})</div>` +
+      oic.top.map((c) =>
+        `<div class="oic-row"><b>${c.strike}</b> <span class="oic-c">C ${c.dcall >= 0 ? '+' : ''}${fmt.int(c.dcall)}</span> · <span class="oic-p">P ${c.dput >= 0 ? '+' : ''}${fmt.int(c.dput)}</span> <i>${esc(c.read)}</i></div>`
+      ).join('') + `</div>`;
+  }
+
   el.innerHTML =
     `<div class="plan-head">
        <span class="plan-title">📋 แผนวันนี้ <span class="plan-bias ${biasCls}">${biasTxt}</span></span>
@@ -325,9 +337,33 @@ function renderPlan(p) {
     lvls(p.resistance, 'res', 'แนวต้าน') +
     lvls(p.support, 'sup', 'แนวรับ') +
     entries +
+    oicHtml +
     (p.scenarios && p.scenarios.length ? `<ul class="plan-scen">${p.scenarios.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : '') +
     (p.risk ? `<div class="plan-risk">⚠️ ${esc(p.risk)}</div>` : '') +
     `<div class="plan-src">ที่มา: ${esc(p.source || 'The Invisible Money + OI/Vol')} · AI สร้างอัตโนมัติ ไม่ใช่คำแนะนำการลงทุน</div>`;
+}
+
+// ── track record: auto-evaluated plan outcomes (approx via PAXG H1) ──
+async function loadTrack() {
+  const el = $('track');
+  if (!el) return;
+  try {
+    const r = await fetch('data/track_record.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    const t = await r.json();
+    const s = t.stats || {};
+    el.style.display = '';
+    el.innerHTML =
+      `<div class="track-head">📈 ผลแผนย้อนหลัง <span class="track-sub">ประเมินอัตโนมัติจากราคา PAXG H1 ≈ XAUUSD · TP/SL = เป้าแรกของแต่ละ setup</span></div>` +
+      `<div class="track-stats">` +
+        `<span class="ts-item tp">✓ TP ${s.tp || 0}</span>` +
+        `<span class="ts-item sl">✗ SL ${s.sl || 0}</span>` +
+        `<span class="ts-item">ไม่ถึงจุดเข้า ${s.no_entry || 0}</span>` +
+        `<span class="ts-item">รอผล ${s.open || 0}</span>` +
+        (t.win_rate != null ? `<span class="ts-item wr">winrate ${t.win_rate}%</span>` : '') +
+        `<span class="ts-item mut">จาก ${t.n_plans || 0} แผน</span>` +
+      `</div>`;
+  } catch (e) { el.innerHTML = ''; el.style.display = 'none'; }
 }
 
 async function loadPlan() {
@@ -390,6 +426,7 @@ async function load() {
     fetchDataTime();
   }
   loadPlan();
+  loadTrack();
 }
 
 // ── theme ──

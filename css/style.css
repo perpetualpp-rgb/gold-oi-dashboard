@@ -422,6 +422,40 @@ footer {
 .entry-nums .c-rr { color: var(--fg2); }
 .entry-note { font-family: var(--mono); font-size: 10px; color: var(--fg2); margin-top: 3px; line-height: 1.45; }
 
+/* OI day-over-day change (inside plan card) */
+.plan-oic { margin: 10px 0 4px; }
+.oic-row {
+  font-family: var(--mono); font-size: 11px; color: var(--fg1);
+  padding: 4px 9px; margin-bottom: 4px; line-height: 1.5;
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 7px;
+}
+.oic-row b { color: var(--fg0); }
+.oic-row .oic-c { color: var(--call); }
+.oic-row .oic-p { color: var(--put); }
+.oic-row i { font-style: normal; color: var(--fg2); font-size: 10px; }
+
+/* ── TRACK RECORD ── */
+.track-wrap {
+  background: var(--bg1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.track-head { font-family: var(--sans); font-size: 12.5px; font-weight: 600; margin-bottom: 7px; }
+.track-sub { font-family: var(--mono); font-size: 9px; font-weight: 400; color: var(--fg3); display: block; margin-top: 2px; }
+.track-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.ts-item {
+  font-family: var(--mono); font-size: 11px; color: var(--fg1);
+  background: var(--bg2); border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 9px;
+}
+.ts-item.tp { color: var(--up); border-color: var(--up); }
+.ts-item.sl { color: var(--down); border-color: var(--down); }
+.ts-item.wr { color: var(--fg0); font-weight: 600; }
+.ts-item.mut { color: var(--fg3); }
+
 /* ── SD GAUGE ── */
 .gauge-card {
   background: var(--bg1);

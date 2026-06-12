@@ -35,9 +35,9 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add plan.json
+          git add plan.json data
           if git diff --cached --quiet; then
-            echo "plan.json unchanged — nothing to commit"
+            echo "nothing to commit"
           else
             git commit -m "Auto plan (cloud) $(date -u +%Y-%m-%dT%H:%MZ)"
             git push

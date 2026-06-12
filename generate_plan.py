@@ -61,6 +61,10 @@ elif os.path.exists(os.path.join(SCRIPT_DIR, "gold-oi-dashboard", "index.html"))
 else:
     REPO_DIR = SCRIPT_DIR
 PLAN_PATH = os.path.join(REPO_DIR, "plan.json")
+DATA_DIR = os.path.join(REPO_DIR, "data")
+OI_ARCHIVE_DIR = os.path.join(DATA_DIR, "oi")
+PLANS_LOG = os.path.join(DATA_DIR, "plans_log.jsonl")
+TRACK_PATH = os.path.join(DATA_DIR, "track_record.json")
 
 
 def _bkk_now():
@@ -236,7 +240,7 @@ def build_plan(s):
 
 def git_push(session):
     date = _bkk_now().strftime("%Y-%m-%d")
-    subprocess.run(["git", "-C", REPO_DIR, "add", "plan.json"], check=False, capture_output=True, text=True)
+    subprocess.run(["git", "-C", REPO_DIR, "add", "plan.json", "data"], check=False, capture_output=True, text=True)
     subprocess.run(["git", "-C", REPO_DIR, "commit", "-m", f"Auto plan {session} {date}"], check=False, capture_output=True, text=True)
     # Retry push to survive transient network failures (a silent failure would otherwise
     # strand the commit unpushed until the next run). Rebase between tries in case remote moved.
@@ -249,6 +253,152 @@ def git_push(session):
         subprocess.run(["git", "-C", REPO_DIR, "pull", "--rebase"], check=False, capture_output=True, text=True)
         time.sleep(8)
     print("git push: FAILED after 3 attempts — commit stays local, next run will retry")
+
+
+# ── #4: daily OI archive + day-over-day change (book: "Put falling + Call rising" = shift) ──
+
+def archive_oi_and_diff():
+    """Save today's raw OIData.txt under data/oi/YYYY-MM-DD.txt (latest wins) and
+    return day-over-day per-strike changes vs the most recent prior day, or None."""
+    os.makedirs(OI_ARCHIVE_DIR, exist_ok=True)
+    today = _bkk_now().strftime("%Y-%m-%d")
+    raw = ps.fetch(ps.OI_URL)
+    with open(os.path.join(OI_ARCHIVE_DIR, today + ".txt"), "w", encoding="utf-8") as f:
+        f.write(raw)
+
+    prior = sorted(d[:-4] for d in os.listdir(OI_ARCHIVE_DIR) if d.endswith(".txt") and d[:-4] < today)
+    if not prior:
+        return None
+    prev_date = prior[-1]
+    with open(os.path.join(OI_ARCHIVE_DIR, prev_date + ".txt"), encoding="utf-8") as f:
+        prev = ps.parse(f.read())
+    cur = ps.parse(raw)
+    if cur.get("contract") != prev.get("contract"):
+        return {"vs_date": prev_date, "contract_changed": True, "top": []}
+
+    pmap = {r["strike"]: r for r in prev["rows"]}
+    changes = []
+    for r in cur["rows"]:
+        p = pmap.get(r["strike"])
+        if not p:
+            continue
+        dc, dp = r["call"] - p["call"], r["put"] - p["put"]
+        if abs(dc) + abs(dp) < 10:        # ignore noise
+            continue
+        if dp < 0 and dc > 0:
+            read = "Put ลด+Call เพิ่ม = โครงสร้างพลิกขึ้น"
+        elif dc < 0 and dp > 0:
+            read = "Call ลด+Put เพิ่ม = โครงสร้างพลิกลง"
+        elif dc > 0 and dp > 0:
+            read = "ทั้งคู่เพิ่ม = สนใจ strike นี้หนาแน่น"
+        else:
+            read = "ทั้งคู่ลด = ถอนความสนใจ"
+        changes.append({"strike": int(r["strike"]), "dcall": dc, "dput": dp, "read": read})
+    changes.sort(key=lambda c: abs(c["dcall"]) + abs(c["dput"]), reverse=True)
+    return {"vs_date": prev_date, "contract_changed": False, "top": changes[:5]}
+
+
+# ── #3: plan log + outcome evaluation (approx, PAXG 1h candles ≈ CFD/XAUUSD) ──
+
+def _fetch_candles(start_iso, end_iso):
+    """Coinbase PAXG-USD hourly candles [[t,low,high,open,close,vol]...] oldest-first, or None."""
+    url = ("https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=3600"
+           f"&start={urllib.parse.quote(start_iso)}&end={urllib.parse.quote(end_iso)}")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "gold-oi-dashboard"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            rows = json.load(r)
+        return sorted(rows, key=lambda x: x[0]) if isinstance(rows, list) else None
+    except Exception:
+        return None
+
+
+def _judge_entry(en, candles, plan_ts):
+    """Walk candles after plan_ts: did price reach entry, then SL or TP1 first?
+    Conservative: same-candle SL+TP → 'sl'. Returns no_entry / tp / sl / open."""
+    ENTRY_WINDOW_H, WATCH_H = 24, 72
+    long_ = en["side"] == "long"
+    entry, sl, tp1 = en["entry"], en["sl"], en["tp"][0]
+    entered = False
+    hours_seen = 0
+    for c in candles:
+        t, lo, hi = c[0], c[1], c[2]
+        if t < plan_ts:
+            continue
+        hours_seen += 1
+        if not entered:
+            if hours_seen > ENTRY_WINDOW_H:
+                return "no_entry"
+            if lo <= entry <= hi:
+                entered = True
+                hit_sl = (lo <= sl) if long_ else (hi >= sl)
+                hit_tp = (hi >= tp1) if long_ else (lo <= tp1)
+                if hit_sl:
+                    return "sl"           # conservative when both in entry candle
+                if hit_tp:
+                    return "tp"
+            continue
+        if hours_seen > WATCH_H:
+            return "open"
+        hit_sl = (lo <= sl) if long_ else (hi >= sl)
+        hit_tp = (hi >= tp1) if long_ else (lo <= tp1)
+        if hit_sl:
+            return "sl"
+        if hit_tp:
+            return "tp"
+    return "open" if entered else ("no_entry" if hours_seen > ENTRY_WINDOW_H else "open")
+
+
+def log_plan_and_evaluate(plan):
+    """Append this plan to plans_log.jsonl, re-evaluate unresolved past plans, write track_record.json."""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    rows = []
+    if os.path.exists(PLANS_LOG):
+        with open(PLANS_LOG, encoding="utf-8") as f:
+            rows = [json.loads(ln) for ln in f if ln.strip()]
+    rows.append({"ts": plan["updated_at"], "session": plan["session"], "bias": plan["bias"],
+                 "future": plan["future"], "spot_cfd": plan["spot_cfd"],
+                 "entries": [{k: e[k] for k in ("side", "title", "entry", "sl", "tp")} for e in plan["entries"]],
+                 "outcomes": None})
+
+    now_ts = time.time()
+    pending = [r for r in rows[:-1] if not r.get("outcomes") or "open" in r["outcomes"]]
+    if pending:
+        oldest = min(pending, key=lambda r: r["ts"])
+        try:
+            from datetime import datetime, timezone
+            start_dt = datetime.fromisoformat(oldest["ts"])
+            start_iso = datetime.fromtimestamp(start_dt.timestamp() - 3600, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            end_iso = datetime.fromtimestamp(now_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            candles = _fetch_candles(start_iso, end_iso)
+        except Exception:
+            candles = None
+        if candles:
+            from datetime import datetime
+            for r in pending:
+                try:
+                    pts = datetime.fromisoformat(r["ts"]).timestamp()
+                    if now_ts - pts < 4 * 3600:      # too fresh to judge
+                        continue
+                    r["outcomes"] = [_judge_entry(e, candles, pts) for e in r["entries"]]
+                except Exception:
+                    continue
+
+    with open(PLANS_LOG, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    flat = [o for r in rows for o in (r.get("outcomes") or []) if o]
+    stats = {"tp": flat.count("tp"), "sl": flat.count("sl"),
+             "no_entry": flat.count("no_entry"), "open": flat.count("open")}
+    closed = stats["tp"] + stats["sl"]
+    track = {"updated_at": plan["updated_at"], "n_plans": len(rows), "stats": stats,
+             "win_rate": round(stats["tp"] / closed * 100, 1) if closed else None,
+             "recent": [{"ts": r["ts"][:16], "session": r["session"], "bias": r["bias"],
+                         "outcomes": r.get("outcomes")} for r in rows[-10:]]}
+    with open(TRACK_PATH, "w", encoding="utf-8") as f:
+        json.dump(track, f, ensure_ascii=False, indent=1)
+    print(f"track: plans={len(rows)} stats={stats}")
 
 
 def notify_telegram(plan):
@@ -281,7 +431,6 @@ def notify_telegram(plan):
     lines += [
         "",
         "⚠️ รอไส้เทียน H1/H4 ยืนยันก่อนเข้า · เทียบราคากับโบรกฯ ของคุณ",
-        "📊 https://perpetualpp-rgb.github.io/gold-oi-dashboard/",
         "ไม่ใช่คำแนะนำการลงทุน",
     ]
     data = urllib.parse.urlencode({
@@ -306,8 +455,17 @@ def main():
     no_telegram = "--no-telegram" in sys.argv
     stats = ps.compute_stats()
     plan = build_plan(stats)
+    try:
+        plan["oi_change"] = archive_oi_and_diff()          # #4 daily OI delta
+    except Exception as e:
+        print("oi_change failed:", e)
+        plan["oi_change"] = None
     with open(PLAN_PATH, "w", encoding="utf-8") as f:
         json.dump(plan, f, ensure_ascii=False, indent=2)
+    try:
+        log_plan_and_evaluate(plan)                        # #3 track record
+    except Exception as e:
+        print("track failed:", e)
     print(f"plan.json: bias={plan['bias']} future={plan['future']} session={plan['session']} "
           f"res={[r['price'] for r in plan['resistance']]} sup={[s_['price'] for s_ in plan['support']]}")
     if no_push:
