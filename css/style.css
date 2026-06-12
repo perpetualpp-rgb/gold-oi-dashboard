@@ -372,6 +372,9 @@ footer {
 .plan-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .plan-title { font-family: var(--sans); font-size: 14px; font-weight: 600; }
 .plan-time { font-family: var(--mono); font-size: 10px; color: var(--fg2); }
+.plan-time .pdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; background: var(--up); }
+.plan-time .pdot.stale { background: var(--down); }
+.plan-stale { color: var(--down); font-weight: 600; }
 .plan-bias { font-family: var(--mono); font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 5px; margin-left: 4px; }
 .plan-bias.b-long    { color: var(--up);   background: rgba(47,143,78,0.13); }
 .plan-bias.b-short   { color: var(--down); background: rgba(192,57,43,0.13); }

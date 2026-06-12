@@ -250,6 +250,37 @@ function render() {
 // ── AI plan (generated 13:00 & 19:00 from The Invisible Money method) ──
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
+// ── plan freshness: is the shown plan the most recent expected 13:00/19:00 weekday run? ──
+// (Thailand has no DST, so +07:00 is constant — slot timestamps are exact.)
+const _thaiYMD = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+const _thaiWeekday = (ms) => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bangkok', weekday: 'short' }).format(new Date(ms));
+
+function expectedSlotTs(graceMin) {
+  const nowMs = Date.now(), cutoff = nowMs - graceMin * 60000;
+  for (let back = 0; back < 6; back++) {              // walk back far enough to clear a weekend
+    const dayMs = nowMs - back * 86400000;
+    for (const hh of [19, 13]) {                      // newest slot first
+      const ts = Date.parse(`${_thaiYMD(dayMs)}T${hh < 10 ? '0' + hh : hh}:00:00+07:00`);
+      if (ts <= cutoff) {
+        const wd = _thaiWeekday(ts);
+        if (wd !== 'Sat' && wd !== 'Sun') return ts;   // only weekday slots are "expected"
+      }
+    }
+  }
+  return null;
+}
+
+function planFreshness(p) {
+  try {
+    const planTs = Date.parse(p.updated_at);
+    const expected = expectedSlotTs(30);              // 30-min grace: run + push + Pages rebuild
+    if (expected && !isNaN(planTs) && planTs < expected - 45 * 60000) {
+      return { stale: true, hrs: Math.max(1, Math.round((Date.now() - planTs) / 3600000)) };
+    }
+  } catch (e) { /* ignore */ }
+  return { stale: false };
+}
+
 function renderPlan(p) {
   const el = $('plan');
   if (!p || !p.updated_at) {
@@ -281,11 +312,13 @@ function renderPlan(p) {
 
   let when = '';
   try { when = new Date(p.updated_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
+  const fresh = planFreshness(p);
+  const staleTxt = fresh.stale ? ` · <span class="plan-stale">⚠ ค้าง ${fresh.hrs} ชม. (push อาจพลาด)</span>` : '';
 
   el.innerHTML =
     `<div class="plan-head">
        <span class="plan-title">📋 แผนวันนี้ <span class="plan-bias ${biasCls}">${biasTxt}</span></span>
-       <span class="plan-time">รอบ ${esc(p.session || '')} · ${when}</span>
+       <span class="plan-time"><span class="pdot ${fresh.stale ? 'stale' : 'ok'}"></span>รอบ ${esc(p.session || '')} · ${when}${staleTxt}</span>
      </div>` +
     (p.spot_cfd != null ? `<div class="plan-cfd">💱 CFD/XAUUSD ≈ <b>${fmt.px(p.spot_cfd)}</b> · futures ${fmt.px(p.future)} · basis −${fmt.px(p.basis)}${p.basis_live ? '' : ' <i>(ประมาณ)</i>'}</div>` : '') +
     (p.headline ? `<div class="plan-headline">${esc(p.headline)}</div>` : '') +
