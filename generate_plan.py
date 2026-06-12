@@ -19,18 +19,29 @@ import subprocess
 import urllib.request
 import plan_stats as ps
 
-# Live gold spot proxy = Binance PAXG (Pax Gold, 1 token ≈ 1oz, tracks XAU spot).
-SPOT_URL = "https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT"
-DEFAULT_BASIS = 30.0   # fallback futures−spot gap (book's ~$30) if live spot can't be fetched
+# Live gold spot proxy = PAXG (Pax Gold, 1 token ≈ 1oz, tracks XAU spot). Try several
+# exchanges in order so it works both locally (Thailand) and from GitHub Actions
+# (US/Azure runners — Binance is geo-blocked there, but Coinbase/Kraken are reachable).
+SPOT_SOURCES = [
+    ("https://api.exchange.coinbase.com/products/PAXG-USD/ticker", lambda j: float(j["price"])),
+    ("https://api.kraken.com/0/public/Ticker?pair=PAXGUSD",        lambda j: float(j["result"]["PAXGUSD"]["c"][0])),
+    ("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", lambda j: float(j["price"])),
+]
+DEFAULT_BASIS = 30.0   # fallback futures−spot gap (book's ~$30) if no source reachable
 
 
 def fetch_spot():
-    """Return live gold spot (~XAUUSD) as float, or None on failure."""
-    try:
-        with urllib.request.urlopen(SPOT_URL, timeout=12) as r:
-            return float(json.load(r)["price"])
-    except Exception:
-        return None
+    """Return live gold spot (~XAUUSD via PAXG) as float, or None if all sources fail."""
+    for url, pick in SPOT_SOURCES:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "gold-oi-dashboard"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                val = pick(json.load(r))
+                if val and val > 0:
+                    return val
+        except Exception:
+            continue
+    return None
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
