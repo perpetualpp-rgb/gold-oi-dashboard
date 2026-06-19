@@ -1,11 +1,11 @@
 {
- "updated_at": "2026-06-19T22:37+07:00",
+ "updated_at": "2026-06-19T21:30+07:00",
  "n_plans": 21,
  "stats": {
   "tp": 12,
   "sl": 13,
-  "no_entry": 11,
-  "open": 2
+  "no_entry": 10,
+  "open": 3
  },
  "win_rate": 48.0,
  "recent": [
@@ -88,7 +88,7 @@
    "outcomes": null
   },
   {
-   "ts": "2026-06-19T22:37",
+   "ts": "2026-06-19T21:30",
    "session": "21:30",
    "bias": "short",
    "outcomes": null
