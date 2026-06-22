@@ -288,6 +288,10 @@ def build_plan(s):
         "spot_cfd": round(spot, 1),
         "basis": basis,
         "basis_live": basis_live,
+        "regime": regime,
+        "sigma": round(sd, 1),
+        "atm_iv": s["atm_iv"],
+        "dte": s["dte"],
         "bias": bias,
         "headline": head,
         "resistance": res,
@@ -653,6 +657,41 @@ def _keep_awake(on):
         pass
 
 
+def write_mt5_plan(plan):
+    """Bridge the plan into every MT5 terminal's MQL5/Files/gold_plan.csv so GoldOI_AutoTrader.mq5
+    can read it (same %APPDATA%\\MetaQuotes\\Terminal auto-discovery as parse_oi_pdf.py). Line format:
+      META,<epoch_utc>,<session>,<bias>,<regime>,<basis>,<future>,<atm_iv>,<sigma>,<updated_at>
+      ENTRY,<side>,<entry>,<sl>,<tp1>,<tp2>     (one per setup; prices are CFD/XAUUSD, tp2=0 if none)
+    epoch_utc lets the EA reject a stale plan; only called on REAL runs (not --no-push tests) so a
+    dry-run never feeds the live EA."""
+    rows = ["META,{},{},{},{},{},{},{},{},{}".format(
+        int(time.time()), plan["session"], plan["bias"], plan.get("regime", ""), plan["basis"],
+        plan["future"], plan.get("atm_iv", ""), plan.get("sigma", ""), plan["updated_at"])]
+    for e in plan.get("entries", []):
+        tp = e.get("tp") or []
+        rows.append("ENTRY,{},{},{},{},{}".format(
+            e["side"], e["entry"], e["sl"], tp[0] if tp else 0, tp[1] if len(tp) > 1 else 0))
+    text = "\n".join(rows) + "\n"
+    try:
+        with open(os.path.join(DATA_DIR, "gold_plan.csv"), "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        pass
+    base = os.path.expandvars(r"%APPDATA%\MetaQuotes\Terminal")
+    n = 0
+    if os.path.isdir(base):
+        for entry in os.listdir(base):
+            fdir = os.path.join(base, entry, "MQL5", "Files")
+            if os.path.isdir(fdir):
+                try:
+                    with open(os.path.join(fdir, "gold_plan.csv"), "w", encoding="utf-8") as f:
+                        f.write(text)
+                    n += 1
+                except Exception:
+                    pass
+    print(f"mt5 bridge: wrote gold_plan.csv to {n} terminal(s)")
+
+
 def main():
     no_push = "--no-push" in sys.argv
     no_telegram = "--no-telegram" in sys.argv
@@ -672,6 +711,11 @@ def main():
             json.dump(plan, f, ensure_ascii=False, indent=2)
         print(f"plan.json: bias={plan['bias']} future={plan['future']} session={plan['session']} "
               f"res={[r['price'] for r in plan['resistance']]} sup={[s_['price'] for s_ in plan['support']]}")
+        if not no_push:                                    # feed the live MT5 EA only on real runs
+            try:
+                write_mt5_plan(plan)
+            except Exception as e:
+                print("mt5 bridge failed:", e)
         try:
             log_plan_and_evaluate(plan)                        # #3 track record
         except Exception as e:
