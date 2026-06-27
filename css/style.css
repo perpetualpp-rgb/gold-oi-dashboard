@@ -335,7 +335,7 @@ header {
   overflow: hidden;
   background: var(--bg1);
 }
-.senti-frame iframe { display: block; width: 100%; border: 0; }
+.senti-frame iframe { display: block; width: 100%; border: 0; height: 132px; }
 .chart-wrap { margin-bottom: 24px; }
 .tv-frame {
   height: 520px;
