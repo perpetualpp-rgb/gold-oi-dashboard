@@ -53,6 +53,37 @@ def fetch_spot():
             continue
     return None
 
+
+COT_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
+
+
+def fetch_cot():
+    """CFTC Commitments of Traders for COMEX gold (weekly, free, no auth — gov open data, reliable
+    unlike retail-sentiment sites). Returns the 3 trader groups' NET positions + week-over-week
+    change. Book Ch3 / 'OI มีอยู่จริง': FADE Small Specs (retail, usually wrong), watch Commercials
+    (smart money) extremes, Large Specs = trend. Returns None on any failure (COT is optional)."""
+    import urllib.parse
+    q = ("?$where=market_and_exchange_names like 'GOLD%COMMODITY EXCHANGE%'"
+         "&$order=report_date_as_yyyy_mm_dd DESC&$limit=2")
+    try:
+        req = urllib.request.Request(COT_URL + urllib.parse.quote(q, safe="?&=$"),
+                                     headers={"User-Agent": "gold-oi-dashboard"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.load(r)
+        if len(d) < 2:
+            return None
+        net = lambda row, p: int(float(row[p + "_positions_long_all"])) - int(float(row[p + "_positions_short_all"]))
+        cur, prev = d[0], d[1]
+        out = {"date": cur["report_date_as_yyyy_mm_dd"][:10]}
+        for key, p in (("comm", "comm"), ("spec", "noncomm"), ("retail", "nonrept")):
+            n = net(cur, p)
+            out[key] = {"net": n, "chg": n - net(prev, p)}
+        out["retail_lean"] = "down" if out["retail"]["net"] > 0 else ("up" if out["retail"]["net"] < 0 else "flat")
+        return out
+    except Exception as e:
+        print("cot fetch failed:", e)
+        return None
+
 try:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
@@ -159,13 +190,18 @@ def build_plan(s):
         pcr_vote, pcr_warn = 0.8, f"P/C OI {pcr} สูงมาก (Put ล้น = แห่กลัวลงสุดขีด) → ระวังเด้งกลับขึ้น"
     else:
         pcr_vote = 0.0
+    cot = fetch_cot()                                   # CFTC weekly positioning (book Ch3)
+    cot_vote = 0.0
+    if cot:
+        rn = cot["retail"]["net"]                       # fade retail (Small Specs usually wrong)
+        cot_vote = -0.3 if rn > 0 else 0.3 if rn < 0 else 0.0
     if regime == "high":          # don't fade a volatile trend (กฎทอง)
         w_mom, w_oi, w_pcr = 1.0, 0.2, 0.4
     elif regime == "low":         # quiet range — mean-reversion toward the OI bulk dominates
         w_mom, w_oi, w_pcr = 0.6, 0.8, 0.8
     else:
         w_mom, w_oi, w_pcr = 0.8, 0.5, 0.7
-    score = w_mom * mom + w_oi * oi_pull + w_pcr * pcr_vote
+    score = w_mom * mom + w_oi * oi_pull + w_pcr * pcr_vote + 0.4 * cot_vote
     bias = "short" if score <= -0.4 else "long" if score >= 0.4 else "neutral"
     # which factors pushed it that way — shown in the headline so the call stays transparent
     sgn = -1 if bias == "short" else 1 if bias == "long" else 0
@@ -176,6 +212,8 @@ def build_plan(s):
         why.append("ราคา" + ("เหนือ" if z_oi > 0 else "ใต้") + " Mean OI")
     if sgn and pcr_vote * sgn > 0:
         why.append("P/C สุดขั้วสวนทาง")
+    if sgn and cot_vote * sgn > 0:
+        why.append("COT รายย่อยสวน")
     bias_why = " + ".join(why) if why else "ยังไม่เลือกข้าง"
 
     # ── resistance / support level objects with methodology notes ──
@@ -287,6 +325,9 @@ def build_plan(s):
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
     if g_up and g_dn:
         bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
+    if cot:
+        lean = {"down": "น้ำหนักลง", "up": "น้ำหนักขึ้น", "flat": "กลางๆ"}[cot["retail_lean"]]
+        bits.append(f"COT {cot['date']} (CFTC รายสัปดาห์): รายย่อย net {cot['retail']['net']:+,} → สวน = {lean} · กองทุน(specs) net {cot['spec']['net']:+,} · เงินฉลาด(comm) net {cot['comm']['net']:+,}")
     risk = "; ".join(bits)
 
     # ── headline ──
@@ -325,6 +366,7 @@ def build_plan(s):
         "scenarios": scen,
         "entries": entries,
         "grid": grid,
+        "cot": cot,
         "risk": risk,
         "source": "The Invisible Money + OI มีอยู่จริง + OI/Vol (CME)",
     }

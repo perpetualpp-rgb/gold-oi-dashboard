@@ -434,6 +434,33 @@ function renderGrid(p) {
     `<div class="grid-rows">${inner}</div>`;
 }
 
+// ── COT (CFTC weekly positioning): smart money + fade retail (book Ch3) ──
+function renderCot(p) {
+  const el = $('cot');
+  if (!el) return;
+  const c = p && p.cot;
+  if (!c) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  const fmt = (n) => (n >= 0 ? '+' : '') + n.toLocaleString();
+  const arrow = (chg) => chg > 0 ? `<span class="c-up">▲ ${fmt(chg)}</span>` : chg < 0 ? `<span class="c-dn">▼ ${fmt(chg)}</span>` : '—';
+  const lean = { down: 'long → สวน = น้ำหนักลง', up: 'short → สวน = น้ำหนักขึ้น', flat: 'กลางๆ' }[c.retail_lean];
+  const rows = [
+    ['เงินฉลาด · Commercials', c.comm, 'ผู้ผลิต/hedge · ดูตอนสุดขั้ว'],
+    ['กองทุน · Large Specs', c.spec, 'ตามเทรนด์'],
+    ['รายย่อย · Small Specs', c.retail, lean],
+  ];
+  el.style.display = '';
+  el.innerHTML =
+    `<div class="cot-head">🏛️ COT · Commitment of Traders <span class="cot-sub">CFTC รายสัปดาห์ · ${c.date} · รายย่อยมักผิด → สวน</span></div>` +
+    `<div class="cot-rows">` +
+    rows.map(([label, g, note]) =>
+      `<div class="cot-row"><span class="cot-label">${label}</span>` +
+      `<span class="cot-net ${g.net >= 0 ? 'c-long' : 'c-short'}">${fmt(g.net)}</span>` +
+      `<span class="cot-chg">${arrow(g.chg)}</span>` +
+      `<span class="cot-note">${note}</span></div>`
+    ).join('') +
+    `</div>`;
+}
+
 async function loadPlan() {
   try {
     const res = await fetch('plan.json?t=' + Date.now(), { cache: 'no-store' });
@@ -441,6 +468,7 @@ async function loadPlan() {
     const p = await res.json();
     renderPlan(p);
     renderGrid(p);
+    renderCot(p);
     // adopt the plan's live basis for the bell-chart CFD mode
     if (typeof p.basis === 'number' && p.basis > -5 && p.basis < 80) {
       const changed = Math.abs(p.basis - state.basis) > 0.01;
@@ -450,6 +478,7 @@ async function loadPlan() {
   } catch (e) {
     renderPlan(null);
     renderGrid(null);
+    renderCot(null);
   }
 }
 
