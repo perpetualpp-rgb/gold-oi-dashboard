@@ -103,6 +103,21 @@ def _last_good_basis():
     return None
 
 
+def grid_levels(fut, sd, basis, walls):
+    """Book 'The Invisible Money' Ch6 ($50 Grid): every round $50/$100 futures level is a natural
+    S/R because big players cluster Block Trades there → OI builds up → Market Makers must
+    delta-hedge around it. Return the 3 nearest levels each side of price, flagging ones that sit
+    on a dense OI wall (those are the strongest)."""
+    base = int(fut // 50 * 50)
+    out = []
+    for k in range(-3, 4):
+        lvl = base + k * 50
+        if lvl > 0:
+            out.append({"price": lvl, "cfd": round(lvl - basis, 1),
+                        "r100": lvl % 100 == 0, "oi": any(abs(lvl - w) <= 15 for w in walls)})
+    return out
+
+
 def build_plan(s):
     fut = s["future"]
     sd = s["sigma_points"] or 1
@@ -246,6 +261,15 @@ def build_plan(s):
                   f"แตะแนวรับ {cfd(sup1)} (fut {sup1}) + ไส้เทียน H1 → Long สั้น"),
         ]
 
+    # ── $50 Grid (book Ch6): round-level Block-Trade S/R, flag the ones on a dense OI wall ──
+    walls = {w["strike"] for w in s["resistance_call_walls"]} | {w["strike"] for w in s["support_put_walls"]}
+    for tw in (magnet, call_tail, put_tail):
+        if tw.get("strike"):
+            walls.add(tw["strike"])
+    grid = grid_levels(fut, sd, basis, walls)
+    g_up = next((g for g in grid if g["price"] > fut), None)
+    g_dn = next((g for g in reversed(grid) if g["price"] < fut), None)
+
     # ── risk (regime-aware) ──
     bits = []
     if regime == "high":
@@ -261,6 +285,8 @@ def build_plan(s):
     if s["dte"] < 1:
         bits.append(f"ใกล้หมดอายุ (DTE {s['dte']}) → กำแพง OI บาง/แกว่งแรงช่วงหมดอายุ")
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
+    if g_up and g_dn:
+        bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
     risk = "; ".join(bits)
 
     # ── headline ──
@@ -298,6 +324,7 @@ def build_plan(s):
         "support": sup,
         "scenarios": scen,
         "entries": entries,
+        "grid": grid,
         "risk": risk,
         "source": "The Invisible Money + OI มีอยู่จริง + OI/Vol (CME)",
     }
@@ -671,6 +698,9 @@ def write_mt5_plan(plan):
         tp = e.get("tp") or []
         rows.append("ENTRY,{},{},{},{},{}".format(
             e["side"], e["entry"], e["sl"], tp[0] if tp else 0, tp[1] if len(tp) > 1 else 0))
+    for g in plan.get("grid", []):                          # $50 Grid for the SMC EA
+        rows.append("GRID,{},{},{},{}".format(
+            g["price"], g["cfd"], 1 if g["r100"] else 0, 1 if g["oi"] else 0))
     text = "\n".join(rows) + "\n"
     try:
         with open(os.path.join(DATA_DIR, "gold_plan.csv"), "w", encoding="utf-8") as f:
