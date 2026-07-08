@@ -46,20 +46,28 @@ def tz_bkk():
 
 
 def fetch(url):
-    """Fetch a data file; if the primary (pageth) fails, fall back to our mirror."""
-    bust = str(int(datetime.now(timezone.utc).timestamp()))
+    """Fetch a data file; try primary (pageth) then our mirror, each with a couple of retries so a
+    transient GitHub 429 (rate-limit) doesn't kill the whole run. NO cache-buster — GitHub's CDN
+    cache (~5 min) is fresh enough for OI/intraday and stops us hammering the rate-limited origin
+    (the old `?t=<ts>` forced a cache MISS on every call → 429 → plan failed, e.g. 2026-07-08 13:00)."""
+    import time as _t
+    last = ""
     for u in (url, MIRROR.get(url)):
         if not u:
             continue
-        try:
-            req = urllib.request.Request(u + "?t=" + bust, headers={"Cache-Control": "no-cache"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                txt = r.read().decode("utf-8")
-            if txt.strip():
-                return txt
-        except Exception:
-            continue
-    raise RuntimeError("fetch failed (primary + mirror): " + url)
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(u, headers={"User-Agent": "gold-oi-dashboard"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    txt = r.read().decode("utf-8")
+                if txt.strip():
+                    return txt
+                last = u + ": empty body"
+            except Exception as e:
+                last = f"{u}: {e}"
+            if attempt < 2:
+                _t.sleep(6 * (attempt + 1))       # 6s, 12s backoff — ride out a brief 429
+    raise RuntimeError("fetch failed (primary + mirror): " + url + " · " + last)
 
 
 def parse(text):
