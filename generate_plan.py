@@ -139,8 +139,8 @@ def _last_good_basis():
 def grid_levels(fut, sd, basis, walls):
     """Book 'The Invisible Money' Ch6 ($50 Grid): every round $50/$100 futures level is a natural
     S/R because big players cluster Block Trades there → OI builds up → Market Makers must
-    delta-hedge around it. Return the 3 nearest levels each side of price, flagging ones that sit
-    on a dense OI wall (those are the strongest)."""
+    delta-hedge around it. Returns the nearest levels around price (3 above, 3–4 below — the base
+    rounds down), flagging ones that sit on a dense OI wall (those are the strongest)."""
     base = int(fut // 50 * 50)
     out = []
     for k in range(-3, 4):
@@ -205,6 +205,19 @@ def build_plan(s):
         w_mom, w_oi, w_pcr = 0.8, 0.5, 0.7
     score = w_mom * mom + w_oi * oi_pull + w_pcr * pcr_vote + 0.4 * cot_vote
     bias = "short" if score <= -0.4 else "long" if score >= 0.4 else "neutral"
+    # กฎทอง HARD GATE (book: "Vol ยังทำ New High → ห้ามสวนเทรนด์ ไม่ว่า OI จะหนาแค่ไหน"):
+    # in HIGH regime while IV is still rising, the down-weighted blend can still flip
+    # counter-trend on extreme z / P-C votes — and this bias feeds the EAs via gold_plan.csv,
+    # so block it outright instead of merely discouraging it.
+    golden_gate = ""
+    iv_chg = s.get("atm_iv_chg") or 0.0
+    if regime == "high" and iv_chg > 0 and chg != 0:
+        trend = 1 if chg > 0 else -1
+        bsign = 1 if bias == "long" else -1 if bias == "short" else 0
+        if bsign and bsign != trend:
+            bias = "neutral"
+            golden_gate = (f"กฎทอง: IV ยังพุ่ง (+{iv_chg:g}) ห้ามสวนเทรนด์ → ล็อก bias เป็นกลาง "
+                           f"(สูตรเดิมคำนวณได้ฝั่งสวน) เล่นได้เฉพาะตามเทรนด์ หรือรอ IV หักหัวลงก่อน")
     # which factors pushed it that way — shown in the headline so the call stays transparent
     sgn = -1 if bias == "short" else 1 if bias == "long" else 0
     why = []
@@ -262,7 +275,7 @@ def build_plan(s):
     else:
         scen = [
             f"กรอบหลัก {sup1}–{res1}: ชน {res1} + ไส้เทียน H1 → short สั้น / ลงแตะ {sup1} + ไส้เทียน H1 → long สั้น (เล่นในกรอบ RR ≥ 1:2)",
-            f"ทะลุ {res1} + OI/วอลุ่มเพิ่ม → ไปต่อหา {res_last}; หลุด {sup1} + OI/วอลุ่มเพิ่ม → ลงหา {sup_last}",
+            f"ทะลุ {res1} + OI/วอลุ่มเพิ่ม (Gamma squeeze ของจริง ห้ามสวน) → ไปต่อหา {res_last}; หลุด {sup1} + OI/วอลุ่มเพิ่ม (ของจริง ห้ามสวน) → ลงหา {sup_last}",
             "ยังไม่เลือกข้างชัด — รอ breakout พร้อมวอลุ่มยืนยัน อย่าไล่กลางกรอบ",
         ]
 
@@ -274,6 +287,8 @@ def build_plan(s):
         risk_pts = abs(sl - e) or 1
         rr = abs(e - tps[0]) / risk_pts
         rr_txt = ("≈1:" + f"{rr:.1f}".rstrip("0").rstrip("."))
+        if rr < 2:      # book discipline RR ≥ 1:2 — flag it, don't silently assert it
+            note += f" · ⚠ RR {rr_txt} ต่ำกว่าเป้า 1:2 (SL กว้างช่วง vol สูง) — ลดขนาดไม้ หรือข้าม setup นี้"
         return {"side": side, "title": title, "entry": cfd(e), "sl": cfd(sl),
                 "tp": [cfd(t) for t in tps], "rr": rr_txt, "note": note}
 
@@ -314,6 +329,8 @@ def build_plan(s):
     bits = []
     if regime == "high":
         bits.append(f"ผันผวนสูงมาก (IV {s['atm_iv']}% = regime สูง) → กฎทอง 'Vol ยังทำ New High ห้ามสวนเทรนด์' ลดขนาดไม้ ≥ ครึ่ง ขยาย SL; ราคาทะลุแนว OI ไปไกลกว่าคำนวณ 2–3 เท่าได้")
+        if golden_gate:
+            bits.append(golden_gate)
     elif regime == "low":
         bits.append("ผันผวนต่ำ (regime เขียว) → Mean Reversion ตามแนว OI แม่นขึ้น แต่ระวัง breakout เงียบ ๆ")
     else:
@@ -321,7 +338,7 @@ def build_plan(s):
     if pcr_warn:
         bits.append(pcr_warn + " — รอ price action ยืนยันก่อนสวน")
     bits.append("ทองลงแรงกว่าขึ้น + fat tails → RR ต้องเป็นบวก อย่าเติมไม้ตอนแพง")
-    bits.append("รอไส้เทียน H1/H4 ยืนยันก่อนเข้า วาง SL หลังไส้/หลังกำแพง OI · RR ≥ 1:2")
+    bits.append("รอไส้เทียน H1/H4 ยืนยันก่อนเข้า วาง SL หลังไส้/หลังกำแพง OI · เป้าวินัย RR ≥ 1:2 (setup ไหนต่ำกว่าจะมี ⚠ กำกับ)")
     if s["dte"] < 1:
         bits.append(f"ใกล้หมดอายุ (DTE {s['dte']}) → กำแพง OI บาง/แกว่งแรงช่วงหมดอายุ")
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
@@ -345,6 +362,8 @@ def build_plan(s):
         head += f"มอง LONG ({bias_why}) — รอย่อหาแนวรับ {sup1} แล้วค่อยหาจังหวะ อย่าไล่"
     else:
         head += f"มอง NEUTRAL — เล่นในกรอบ {sup1}–{res1} รอ breakout ยืนยัน"
+        if golden_gate:
+            head += " · กฎทอง: IV ยังพุ่ง งดสวนเทรนด์"
     if pcr_warn:
         head += f" · ⚠️ {pcr_warn}"
 
