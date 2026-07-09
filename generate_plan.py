@@ -29,12 +29,13 @@ SPOT_SOURCES = [
     ("https://api.kraken.com/0/public/Ticker?pair=PAXGUSD",         lambda j: float(j["result"]["PAXGUSD"]["c"][0])),
     ("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", lambda j: float(j["price"])),
 ]
-# Gold's futures-spot basis is structurally STABLE — the user verified it sits ~18-20 (her
-# ArmRiley GC1!−XAUUSD). Only trust a LIVE fut−spot reading inside this band; outside = a feed
-# lagged (saw 4.2/32.4 on the 2026-06-18 crash; 12.0 too-low on 2026-06-22 when pageth's weekly
-# future ran below GC1!). Band hugs 18-20 so a low/high feed artifact falls back to BASIS_DEFAULT.
-BASIS_BAND = (17.0, 21.0)
-BASIS_DEFAULT = 19.0   # centre of her verified 18-20; used when the live reading is out-of-band
+# Gold's futures-spot basis is SLOW-MOVING but it does drift (carry shrinks toward expiry, jumps
+# on roll). The user recalibrates it from her ArmRiley GC1!−XAUUSD: ~18-20 in mid-June 2026, then
+# she reported **12.5 on 2026-07-09** → band re-centred. Only trust a LIVE fut−spot reading inside
+# this band; outside = a feed lagged (saw 4.2/32.4 on the 2026-06-18 crash). When she says the
+# basis drifted again, re-centre BASIS_BAND (±2.5) and BASIS_DEFAULT on her number.
+BASIS_BAND = (10.0, 15.0)
+BASIS_DEFAULT = 12.5   # her verified ArmRiley reading 2026-07-09; used when live is out-of-band
 # Calibration to the user's broker: free XAU spot feeds sit a few $ off any specific broker.
 # Subtract this so spot_cfd ≈ her Pepperstone XAUUSD (gold-api ran ~$4 above it). Tune if it drifts.
 SPOT_ADJUST = 4.0
