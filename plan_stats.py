@@ -13,6 +13,7 @@ Requires: standard library only.
 """
 
 import sys
+import os
 import json
 import math
 import re
@@ -67,7 +68,47 @@ def fetch(url):
                 last = f"{u}: {e}"
             if attempt < 2:
                 _t.sleep(6 * (attempt + 1))       # 6s, 12s backoff — ride out a brief 429
-    raise RuntimeError("fetch failed (primary + mirror): " + url + " · " + last)
+    txt = _git_mirror_text(url)                        # tier 3: git protocol (immune to raw-CDN 429)
+    if txt and txt.strip():
+        return txt
+    raise RuntimeError("fetch failed (primary + mirror + git): " + url + " · " + last)
+
+
+_GIT_FETCHED = False
+
+
+def _repo_dir():
+    d = os.path.dirname(os.path.abspath(__file__))
+    for c in (d, os.path.join(d, "gold-oi-dashboard")):   # Actions: script inside repo · local: repo is a subdir
+        if os.path.isdir(os.path.join(c, ".git")):
+            return c
+    return None
+
+
+def _git_mirror_text(url):
+    """Last-resort data source: read data/mirror/<file> from origin/main over the GIT protocol.
+    raw.githubusercontent.com rate-limits per-IP (HTTP 429, sustained — killed the 2026-07-09 13:00
+    slot even through retries, and the mirror URL shares the same host so it 429s too). git fetch/show
+    goes through a different service and keeps working; mirror.yml keeps the file ≤ a few hours old,
+    which matches pageth's own update cadence anyway."""
+    repo = _repo_dir()
+    if not repo:
+        return None
+    import subprocess
+    global _GIT_FETCHED
+    name = url.rsplit("/", 1)[-1]
+    try:
+        if not _GIT_FETCHED:
+            subprocess.run(["git", "-C", repo, "fetch", "origin", "-q"],
+                           check=False, capture_output=True, timeout=60)
+            _GIT_FETCHED = True
+        r = subprocess.run(["git", "-C", repo, "show", f"origin/main:data/mirror/{name}"],
+                           check=False, capture_output=True, timeout=30)
+        if r.returncode == 0:
+            return r.stdout.decode("utf-8", "replace")
+    except Exception:
+        pass
+    return None
 
 
 def parse(text):
