@@ -1,5 +1,5 @@
 {
- "updated_at": "2026-07-29T23:06+07:00",
+ "updated_at": "2026-07-30T09:09+07:00",
  "n_plans": 97,
  "stats": {
   "tp": 25,
@@ -64,9 +64,9 @@
    "outcomes": null
   },
   {
-   "ts": "2026-07-29T23:06",
-   "session": "21:30",
-   "bias": "short",
+   "ts": "2026-07-30T09:09",
+   "session": "13:00",
+   "bias": "neutral",
    "outcomes": null
   }
  ]
