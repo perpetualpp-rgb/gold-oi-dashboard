@@ -40,7 +40,13 @@ SPOT_SOURCES = [
 # BASIS_SANITY (wide: far-month carry can be $60+). No usable reading → prev basis / BASIS_DEFAULT.
 BASIS_SANITY = (-5.0, 75.0)
 BASIS_DRIFT = 3.0
-BASIS_DEFAULT = 47.0   # last manual anchor: measured pageth_fut−broker_spot 2026-07-31 (ArmRiley vs GC1!=Dec read 58)
+BASIS_DEFAULT = 25.0   # last manual anchor: her LIVE ArmRiley vs Dec, 2026-07-31 22:00 (see BASIS_OVERRIDE note)
+# MANUAL OVERRIDE (2026-07-31 22:00): during the violent month-end Friday session BOTH free spot
+# feeds (gold-api AND Coinbase PAXG — independent sources!) lagged ~$30 behind her broker screen
+# (feeds ~4044, her FOREX.com XAUUSD 4074). A "live" fut−spot from lagging inputs read 46 while her
+# live-vs-live ArmRiley read 25 — HER SCREEN IS GROUND TRUTH. While set, this value is used verbatim
+# (basis_live=false). **SET BACK TO None once feeds re-converge with her broker** (check: gold-api−4 ≈ her price).
+BASIS_OVERRIDE = 25.0
 # Calibration to the user's broker: free XAU spot feeds sit a few $ off any specific broker.
 # Subtract this so spot_cfd ≈ her Pepperstone XAUUSD (gold-api ran ~$4 above it). Tune if it drifts.
 SPOT_ADJUST = 4.0
@@ -171,18 +177,22 @@ def build_plan(s):
     if spot is not None:
         spot -= SPOT_ADJUST                          # calibrate gold-api XAU → broker XAUUSD
     raw = (fut - spot) if spot is not None else None
-    prev_b, prev_c = _prev_basis_contract()
-    same_contract = bool(prev_c) and prev_c == s.get("contract")
-    if same_contract and prev_b is not None and BASIS_SANITY[0] <= prev_b <= BASIS_SANITY[1]:
-        lo, hi = prev_b - BASIS_DRIFT, prev_b + BASIS_DRIFT   # within a series the basis only drifts slowly
-    else:
-        lo, hi = BASIS_SANITY                                  # new/unknown series — re-learn from the live reading
-    if raw is not None and lo <= raw <= hi:
-        basis, basis_live = round(raw, 1), True
-    else:
-        basis = prev_b if (same_contract and prev_b is not None) else BASIS_DEFAULT
-        basis_live = False
+    if BASIS_OVERRIDE is not None:                             # user-verified manual lock (see constants note)
+        basis, basis_live = float(BASIS_OVERRIDE), False
         spot = round(fut - basis, 1)
+    else:
+        prev_b, prev_c = _prev_basis_contract()
+        same_contract = bool(prev_c) and prev_c == s.get("contract")
+        if same_contract and prev_b is not None and BASIS_SANITY[0] <= prev_b <= BASIS_SANITY[1]:
+            lo, hi = prev_b - BASIS_DRIFT, prev_b + BASIS_DRIFT   # within a series the basis only drifts slowly
+        else:
+            lo, hi = BASIS_SANITY                                  # new/unknown series — re-learn from live
+        if raw is not None and lo <= raw <= hi:
+            basis, basis_live = round(raw, 1), True
+        else:
+            basis = prev_b if (same_contract and prev_b is not None) else BASIS_DEFAULT
+            basis_live = False
+            spot = round(fut - basis, 1)
     cfd = lambda x: round(x - basis, 1)
 
     # ── bias: blend the day's momentum with OI structure + an extreme-P/C contrarian flag,
