@@ -29,14 +29,18 @@ SPOT_SOURCES = [
     ("https://api.kraken.com/0/public/Ticker?pair=PAXGUSD",         lambda j: float(j["result"]["PAXGUSD"]["c"][0])),
     ("https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT", lambda j: float(j["price"])),
 ]
-# Gold's futures-spot basis is SLOW-MOVING but it does drift (carry shrinks toward expiry, jumps
-# on roll). The user recalibrates it from her ArmRiley GC1!−XAUUSD: ~18-20 in mid-June 2026, then
-# she reported **12.5 on 2026-07-09** → band re-centred. Only trust a LIVE fut−spot reading inside
-# this band; outside = a feed lagged (saw 4.2/32.4 on the 2026-06-18 crash; 14.9 during the
-# 2026-07-09 bounce while she read 12.5 — fast moves inflate raw fut−spot). When she says the
-# basis drifted again, re-centre BASIS_BAND (±2) and BASIS_DEFAULT on her number.
-BASIS_BAND = (10.5, 14.5)
-BASIS_DEFAULT = 12.5   # her verified ArmRiley reading 2026-07-09; used when live is out-of-band
+# History: ~18-20 mid-June 2026 (her ArmRiley GC1!−XAUUSD) → 12.5 on 07-09 near expiry → ~47 on
+# 07-31 after GC1! rolled to Dec. Feed lag can make a raw fut−spot absurd (4.2/32.4 on the
+# 06-18 crash; −32.6 on 07-09 when the pageth snapshot went stale mid-rally).
+# ADAPTIVE (2026-07-31): the basis is only stable WITHIN one pageth contract series — it decays
+# with carry and JUMPS on every roll (07-09: 19→12.5 near expiry; 07-31: GC1! rolled to Dec and the
+# true pageth-basis leapt to ~47 while the stale static band kept forcing 12.5 → CFD $35 off until
+# the user caught it). Same contract as the previous plan → accept a live fut−spot within
+# ±BASIS_DRIFT of the previous basis; contract changed/unknown → accept anything inside
+# BASIS_SANITY (wide: far-month carry can be $60+). No usable reading → prev basis / BASIS_DEFAULT.
+BASIS_SANITY = (-5.0, 75.0)
+BASIS_DRIFT = 3.0
+BASIS_DEFAULT = 47.0   # last manual anchor: measured pageth_fut−broker_spot 2026-07-31 (ArmRiley vs GC1!=Dec read 58)
 # Calibration to the user's broker: free XAU spot feeds sit a few $ off any specific broker.
 # Subtract this so spot_cfd ≈ her Pepperstone XAUUSD (gold-api ran ~$4 above it). Tune if it drifts.
 SPOT_ADJUST = 4.0
@@ -125,17 +129,14 @@ def _sigma_note(strike, fut, sd):
     return f'{"+" if z > 0 else "−"}{abs(z)}σ'
 
 
-def _last_good_basis():
-    """The previous plan's basis, if it was a live in-band reading — lets us ride out a few
-    volatile runs where the live fut−spot is implausible, instead of dropping to a flat default."""
+def _prev_basis_contract():
+    """Previous plan's basis + pageth contract label — the anchor for the adaptive basis logic."""
     try:
         p = json.load(open(PLAN_PATH, encoding="utf-8"))
         b = p.get("basis")
-        if p.get("basis_live") and isinstance(b, (int, float)) and BASIS_BAND[0] <= b <= BASIS_BAND[1]:
-            return float(b)
+        return (float(b) if isinstance(b, (int, float)) else None), p.get("contract")
     except Exception:
-        pass
-    return None
+        return None, None
 
 
 def grid_levels(fut, sd, basis, walls):
@@ -162,20 +163,25 @@ def build_plan(s):
     call_tail = s.get("call_tail") or {}
     put_tail = s.get("put_tail") or {}
 
-    # ── futures → CFD/XAUUSD via the futures-spot basis ──
-    # The basis is structurally stable (~18); our two free feeds (pageth's snapshot future +
-    # gold-api spot) each lag during fast moves, so a raw fut−spot can be absurd. Accept it only
-    # inside BASIS_BAND; otherwise reuse the last good basis (or BASIS_DEFAULT) so the CFD levels
-    # stay stable and ≈ her broker instead of swinging with feed noise.
+    # ── futures → CFD/XAUUSD via the futures-spot basis (ADAPTIVE — see constants block) ──
+    # Same contract as the previous plan → basis may only drift ±BASIS_DRIFT; contract rolled →
+    # re-learn from the live reading within BASIS_SANITY. Feed-lag garbage falls back to the
+    # previous basis so the CFD levels stay ≈ her broker instead of swinging with feed noise.
     spot = fetch_spot()
     if spot is not None:
         spot -= SPOT_ADJUST                          # calibrate gold-api XAU → broker XAUUSD
     raw = (fut - spot) if spot is not None else None
-    if raw is not None and BASIS_BAND[0] <= raw <= BASIS_BAND[1]:
+    prev_b, prev_c = _prev_basis_contract()
+    same_contract = bool(prev_c) and prev_c == s.get("contract")
+    if same_contract and prev_b is not None and BASIS_SANITY[0] <= prev_b <= BASIS_SANITY[1]:
+        lo, hi = prev_b - BASIS_DRIFT, prev_b + BASIS_DRIFT   # within a series the basis only drifts slowly
+    else:
+        lo, hi = BASIS_SANITY                                  # new/unknown series — re-learn from the live reading
+    if raw is not None and lo <= raw <= hi:
         basis, basis_live = round(raw, 1), True
     else:
-        lg = _last_good_basis()
-        basis, basis_live = (lg if lg is not None else BASIS_DEFAULT), False
+        basis = prev_b if (same_contract and prev_b is not None) else BASIS_DEFAULT
+        basis_live = False
         spot = round(fut - basis, 1)
     cfd = lambda x: round(x - basis, 1)
 
@@ -376,6 +382,7 @@ def build_plan(s):
         "updated_at": now.isoformat(timespec="minutes"),
         "session": session,
         "future": fut,
+        "contract": s["contract"],
         "spot_cfd": round(spot, 1),
         "basis": basis,
         "basis_live": basis_live,
