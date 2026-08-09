@@ -160,6 +160,95 @@ def grid_levels(fut, sd, basis, walls):
     return out
 
 
+# ── KruJeab SD ladder (teacher-sheet formula, locked once per day at 05:00 ICT) ──
+# 1SD = Center × (Vol/100) × √(DTE/365); 2SD/3SD = linear multiples. SAME convention as
+# KruJeab_SD_Probability_Bands_v2.pine ("Vol + DTE (ตารางครู)" + Morning Anchor 05:00),
+# KruJeab_2SD_Reversal.mq5 and KruJeab-SD-AutoFill.user.js — web == Telegram == indicator == EA.
+# Verified vs the teacher's sheet 2026-08-04: spot 4054.9, Vol 20.98, DTE 0.607 → 1SD 34.70.
+# The "05:00 value" = the last pageth IntradayData snapshot BEFORE today's 05:00 ICT, read from
+# our git-mirror HISTORY, so the home PC and the cloud compute IDENTICAL ladders deterministically.
+SD_ANCHOR_HOUR = 5
+
+
+def _sd_anchor_dt():
+    """Today's 05:00 ICT anchor; before 05:00 counts as the previous trading day (userscript rule)."""
+    from datetime import timedelta
+    now = _bkk_now()
+    day = (now - timedelta(hours=SD_ANCHOR_HOUR)).date()
+    return now.replace(year=day.year, month=day.month, day=day.day,
+                       hour=SD_ANCHOR_HOUR, minute=0, second=0, microsecond=0)
+
+
+def _dte_as_of_anchor(header_days, anchor):
+    """Port of the AutoFill userscript's dteAsOfAnchor(): pageth decimal DTE → use directly;
+    whole-number DTE → whole days + the fraction from the 05:00 anchor to the next 12:30 ET
+    expiry. Clamped to 0.05..10 like the script."""
+    if header_days is None:
+        return None
+    if abs(header_days - round(header_days)) >= 0.005:
+        return max(0.05, min(float(header_days), 10.0))
+    try:
+        from zoneinfo import ZoneInfo
+        et = anchor.astimezone(ZoneInfo("America/New_York"))
+        anchor_min = et.hour * 60 + et.minute
+    except Exception:
+        anchor_min = ((SD_ANCHOR_HOUR - 11) % 24) * 60        # rough EDT (ICT−11) fallback
+    diff = (12 * 60 + 30) - anchor_min
+    if diff <= 0:
+        diff += 24 * 60
+    return max(0.05, min(round(header_days) + diff / (24 * 60.0), 10.0))
+
+
+def sd_ladder(basis, s):
+    """Locked 05:00 SD ladder in CFD prices (BUY zone −2SD..−3SD / SELL zone +2SD..+3SD).
+    Never raises — returns None if everything fails (the ladder is an add-on, not a dependency)."""
+    import math
+    try:
+        anchor = _sd_anchor_dt()
+        meta, src, locked = None, "live", False
+        repo = ps._repo_dir()
+        if repo:
+            import subprocess
+            from datetime import timezone as _tz
+            try:
+                subprocess.run(["git", "-C", repo, "fetch", "origin", "-q"],
+                               check=False, capture_output=True, timeout=60)
+                before = anchor.astimezone(_tz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                r = subprocess.run(["git", "-C", repo, "log", "origin/main", "--before=" + before,
+                                    "-1", "--format=%H", "--", "data/mirror/IntradayData.txt"],
+                                   check=False, capture_output=True, text=True, timeout=30)
+                h = (r.stdout or "").strip()
+                if h:
+                    r2 = subprocess.run(["git", "-C", repo, "show", f"{h}:data/mirror/IntradayData.txt"],
+                                        check=False, capture_output=True, timeout=30)
+                    if r2.returncode == 0:
+                        meta = ps.parse(r2.stdout.decode("utf-8", "replace"))
+                        src, locked = "mirror@05:00", True
+            except Exception:
+                meta = None
+        if not meta or not meta.get("future") or not meta.get("iv"):
+            # fallback: current stats, clearly flagged as NOT the locked 05:00 value
+            meta = {"future": s["future"], "iv": s["atm_iv"], "dte": s["dte"]}
+            src, locked = "live", False
+        vol = round(float(meta["iv"]), 2)
+        dte = _dte_as_of_anchor(float(meta["dte"]), anchor)
+        if not vol or not dte:
+            return None
+        dte = round(dte, 2)
+        center = round(float(meta["future"]) - basis, 1)      # CFD center (teacher: GC close − basis)
+        sd1 = center * (vol / 100.0) * math.sqrt(dte / 365.0)
+        lv = lambda k: round(center + k * sd1, 1)
+        return {"day": anchor.strftime("%Y-%m-%d"), "locked": locked, "src": src,
+                "center": center, "center_fut": float(meta["future"]), "vol": vol, "dte": dte,
+                "sd1": round(sd1, 2),
+                "levels": {"p3": lv(3), "p2": lv(2), "p1": lv(1), "mean": center,
+                           "m1": lv(-1), "m2": lv(-2), "m3": lv(-3)},
+                "buy_zone": [lv(-3), lv(-2)], "sell_zone": [lv(2), lv(3)]}
+    except Exception as e:
+        print("sd_ladder failed:", e)
+        return None
+
+
 def build_plan(s):
     fut = s["future"]
     sd = s["sigma_points"] or 1
@@ -342,6 +431,7 @@ def build_plan(s):
     grid = grid_levels(fut, sd, basis, walls)
     g_up = next((g for g in grid if g["price"] > fut), None)
     g_dn = next((g for g in reversed(grid) if g["price"] < fut), None)
+    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
 
     # ── risk (regime-aware) ──
     bits = []
@@ -408,6 +498,7 @@ def build_plan(s):
         "scenarios": scen,
         "entries": entries,
         "grid": grid,
+        "sd_ladder": sdl,
         "cot": cot,
         "risk": risk,
         "source": "The Invisible Money + OI มีอยู่จริง + OI/Vol (CME)",
@@ -693,6 +784,14 @@ def notify_telegram(plan, chart_path=None):
         "",
         "🎯 จุดเข้า (CFD/XAUUSD):",
     ]
+    sdl = plan.get("sd_ladder")
+    if sdl:
+        L = sdl["levels"]
+        lines[-2:-2] = [
+            f"📏 SD Ladder ตี 5{'' if sdl['locked'] else ' (ค่าสด-ไม่ได้ล็อก)'}: Vol {sdl['vol']:g} · DTE {sdl['dte']:g} · 1SD ${sdl['sd1']:g}",
+            f"SELL {fmt1(L['p2'])}–{fmt1(L['p3'])} · Mean {fmt1(L['mean'])} · BUY {fmt1(L['m2'])}–{fmt1(L['m3'])}",
+            "",
+        ]
     for en in plan["entries"]:
         side = "LONG" if en["side"] == "long" else "SHORT"
         tps = "/".join(fmt1(t) for t in en["tp"])

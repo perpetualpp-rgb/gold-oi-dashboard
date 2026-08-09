@@ -373,6 +373,22 @@ header {
 .cot-cav { color: var(--mut); font-size: 10px; }
 .stale-banner { margin: 0 0 14px; padding: 10px 13px; border-radius: 9px; background: rgba(201,146,10,0.13); border: 1px solid #c9920a; color: var(--accent); font-size: 12.5px; line-height: 1.45; }
 .stale-banner b { font-weight: 600; }
+.sdl-wrap { background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 24px; }
+.sdl-head { font-weight: 600; font-size: 13px; }
+.sdl-sub { color: var(--mut); font-weight: 400; font-size: 11px; margin-left: 6px; }
+.sdl-warn { color: var(--down); }
+.sdl-rows { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; font-family: var(--mono); font-size: 12px; }
+.sdl-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,0.025); }
+.sdl-row.sell { background: rgba(178,58,44,0.10); }
+.sdl-row.buy { background: rgba(47,143,78,0.10); }
+.sdl-row.mean { border: 1px dashed var(--line); font-weight: 600; }
+.sdl-lab { min-width: 44px; color: var(--mut); }
+.sdl-row.mean .sdl-lab { color: inherit; }
+.sdl-px { font-weight: 600; min-width: 74px; }
+.sdl-tag { font-size: 10px; color: var(--mut); }
+.sdl-row.sell .sdl-tag { color: var(--down); }
+.sdl-row.buy .sdl-tag { color: var(--up); }
+.sdl-note { margin-top: 9px; font-size: 10.5px; color: var(--mut); }
 .senti-wrap { margin-bottom: 24px; }
 .senti-frame {
   border: 1px solid var(--line);

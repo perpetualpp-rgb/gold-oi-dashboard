@@ -502,6 +502,33 @@ function renderCot(p) {
     `<div class="cot-summary">${cotSummary(c)}</div>`;
 }
 
+// ── KruJeab SD Ladder (teacher-sheet formula: 1SD = Center × Vol/100 × √(DTE/365),
+//    locked once daily at 05:00 ICT by generate_plan — same values as the Pine indicator,
+//    the 2SD-Reversal EA and the AutoFill userscript, so web == Telegram == chart == EA) ──
+function renderSdLadder(p) {
+  const el = $('sdl');
+  if (!el) return;
+  const s = p && p.sd_ladder;
+  if (!s) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  const f = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const L = s.levels;
+  const rows = [
+    ['+3σ', L.p3, 'sell'], ['+2σ', L.p2, 'sell'], ['+1σ', L.p1, ''],
+    ['Mean', L.mean, 'mean'], ['−1σ', L.m1, ''], ['−2σ', L.m2, 'buy'], ['−3σ', L.m3, 'buy'],
+  ];
+  el.style.display = '';
+  el.innerHTML =
+    `<div class="sdl-head">📏 SD Ladder ตี 5 <span class="sdl-sub">สูตรตารางครู · Vol ${s.vol} · DTE ${s.dte} · 1SD $${s.sd1}` +
+    `${s.locked ? '' : ' · <b class="sdl-warn">ค่าสด — ไม่ได้ล็อกตี 5</b>'}</span></div>` +
+    `<div class="sdl-rows">` +
+    rows.map(([lab, v, cls]) =>
+      `<div class="sdl-row ${cls}"><span class="sdl-lab">${lab}</span><span class="sdl-px">${f(v)}</span>` +
+      `<span class="sdl-tag">${cls === 'sell' ? 'SELL zone' : cls === 'buy' ? 'BUY zone' : ''}</span></div>`
+    ).join('') +
+    `</div>` +
+    `<div class="sdl-note">โซนกลับตัว: SELL ${f(s.sell_zone[0])}–${f(s.sell_zone[1])} · BUY ${f(s.buy_zone[1])}–${f(s.buy_zone[0])} · ราคา CFD · ล็อกวันละครั้งตอนตี 5 ไม่ขยับระหว่างวัน</div>`;
+}
+
 // ── "plan is updating" banner: a newer session should be live but GitHub Pages hasn't rebuilt the CDN
 //    yet (~1–3 min lag after each 13:00/19:00/21:30 run). Reassure + self-poll until it catches up. ──
 function ictParts() {
@@ -556,6 +583,7 @@ async function loadPlan() {
     renderPlan(p);
     renderGrid(p);
     renderCot(p);
+    renderSdLadder(p);
     updateStaleBanner(p);
     // adopt the plan's live basis for the bell-chart CFD mode
     if (typeof p.basis === 'number' && p.basis > -5 && p.basis < 80) {
@@ -567,6 +595,7 @@ async function loadPlan() {
     renderPlan(null);
     renderGrid(null);
     renderCot(null);
+    renderSdLadder(null);
     updateStaleBanner(null);
   }
 }
