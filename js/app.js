@@ -529,6 +529,15 @@ function renderSdLadder(p) {
     `<div class="sdl-note">โซนกลับตัว: SELL ${f(s.sell_zone[0])}–${f(s.sell_zone[1])} · BUY ${f(s.buy_zone[1])}–${f(s.buy_zone[0])} · ราคา CFD · ล็อกวันละครั้งตอนตี 5 ไม่ขยับระหว่างวัน</div>`;
 }
 
+// sd_ladder.json is published right after the 05:00 lock (before any plan exists that day) —
+// prefer it so the ladder shows from early morning; a plan's embedded copy matches by construction.
+function fetchSdLock() {
+  fetch('sd_ladder.json?t=' + Date.now(), { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((s) => { if (s && s.levels) renderSdLadder({ sd_ladder: s }); })
+    .catch(() => {});
+}
+
 // ── "plan is updating" banner: a newer session should be live but GitHub Pages hasn't rebuilt the CDN
 //    yet (~1–3 min lag after each 13:00/19:00/21:30 run). Reassure + self-poll until it catches up. ──
 function ictParts() {
@@ -584,6 +593,7 @@ async function loadPlan() {
     renderGrid(p);
     renderCot(p);
     renderSdLadder(p);
+    fetchSdLock();
     updateStaleBanner(p);
     // adopt the plan's live basis for the bell-chart CFD mode
     if (typeof p.basis === 'number' && p.basis > -5 && p.basis < 80) {
@@ -596,6 +606,7 @@ async function loadPlan() {
     renderGrid(null);
     renderCot(null);
     renderSdLadder(null);
+    fetchSdLock();
     updateStaleBanner(null);
   }
 }

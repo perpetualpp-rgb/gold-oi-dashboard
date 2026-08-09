@@ -230,6 +230,8 @@ def sd_ladder(basis, s):
             # fallback: current stats, clearly flagged as NOT the locked 05:00 value
             meta = {"future": s["future"], "iv": s["atm_iv"], "dte": s["dte"]}
             src, locked = "live", False
+        if (not meta or not meta.get("future") or not meta.get("iv")) and s is None:
+            return None                                      # sd-only mode with no live fallback available
         vol = round(float(meta["iv"]), 2)
         dte = _dte_as_of_anchor(float(meta["dte"]), anchor)
         if not vol or not dte:
@@ -247,6 +249,35 @@ def sd_ladder(basis, s):
     except Exception as e:
         print("sd_ladder failed:", e)
         return None
+
+
+SD_PATH = os.path.join(REPO_DIR, "sd_ladder.json")
+
+
+def sd_publish(no_push=False):
+    """05:05 task (`--sd-only`): compute today's locked ladder and publish sd_ladder.json to the
+    web IMMEDIATELY — the SD is fixed for the whole day (her rule), so the site shouldn't wait
+    for the 13:00 plan. The web card reads this file directly; full plan runs re-write it too,
+    and both come from the same 05:00 git-mirror lock, so all surfaces stay identical."""
+    if BASIS_OVERRIDE is not None:
+        basis = float(BASIS_OVERRIDE)
+    else:
+        b, _c = _prev_basis_contract()
+        basis = b if b is not None else BASIS_DEFAULT
+    try:
+        s = ps.compute_stats()
+    except Exception as e:
+        print(f"sd-only: live stats unavailable ({e}) — git-mirror lock only")
+        s = None
+    sdl = sd_ladder(basis, s)
+    if not sdl:
+        print("sd-only: ladder unavailable — nothing published")
+        return
+    with open(SD_PATH, "w", encoding="utf-8") as f:
+        json.dump(sdl, f, ensure_ascii=False, indent=1)
+    print(f"sd_ladder.json: day={sdl['day']} locked={sdl['locked']} center={sdl['center']} 1SD=${sdl['sd1']}")
+    if not no_push:
+        git_push("05:00-SD")
 
 
 def build_plan(s):
@@ -914,6 +945,9 @@ def main():
         return
     _keep_awake(True)
     try:
+        if "--sd-only" in sys.argv:              # 05:05 task: publish today's SD ladder right away
+            sd_publish(no_push)
+            return
         stats = ps.compute_stats()
         plan = build_plan(stats)
         if mt5_only:                                    # VPS: just write gold_plan.csv for the EA, then stop
@@ -929,6 +963,12 @@ def main():
             json.dump(plan, f, ensure_ascii=False, indent=2)
         print(f"plan.json: bias={plan['bias']} future={plan['future']} session={plan['session']} "
               f"res={[r['price'] for r in plan['resistance']]} sup={[s_['price'] for s_ in plan['support']]}")
+        if plan.get("sd_ladder"):                          # keep the standalone daily-lock file in sync
+            try:
+                with open(SD_PATH, "w", encoding="utf-8") as f:
+                    json.dump(plan["sd_ladder"], f, ensure_ascii=False, indent=1)
+            except Exception:
+                pass
         if not no_push:                                    # feed the live MT5 EA only on real runs
             try:
                 write_mt5_plan(plan)
