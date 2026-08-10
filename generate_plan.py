@@ -240,11 +240,14 @@ def sd_ladder(basis, s):
         center = round(float(meta["future"]) - basis, 1)      # CFD center (teacher: GC close − basis)
         sd1 = center * (vol / 100.0) * math.sqrt(dte / 365.0)
         lv = lambda k: round(center + k * sd1, 1)
+        lf = lambda k: round(lv(k) + basis, 1)               # same ladder shifted to futures prices
         return {"day": anchor.strftime("%Y-%m-%d"), "locked": locked, "src": src,
-                "center": center, "center_fut": float(meta["future"]), "vol": vol, "dte": dte,
-                "sd1": round(sd1, 2),
+                "center": center, "center_fut": float(meta["future"]), "basis": basis,
+                "vol": vol, "dte": dte, "sd1": round(sd1, 2),
                 "levels": {"p3": lv(3), "p2": lv(2), "p1": lv(1), "mean": center,
                            "m1": lv(-1), "m2": lv(-2), "m3": lv(-3)},
+                "levels_fut": {"p3": lf(3), "p2": lf(2), "p1": lf(1), "mean": round(center + basis, 1),
+                               "m1": lf(-1), "m2": lf(-2), "m3": lf(-3)},
                 "buy_zone": [lv(-3), lv(-2)], "sell_zone": [lv(2), lv(3)]}
     except Exception as e:
         print("sd_ladder failed:", e)

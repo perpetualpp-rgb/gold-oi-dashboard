@@ -512,6 +512,8 @@ function renderSdLadder(p) {
   if (!s) { el.innerHTML = ''; el.style.display = 'none'; return; }
   const f = (n) => Number(n).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const L = s.levels;
+  const LF = s.levels_fut || null;                 // futures-price column (older plans may lack it)
+  const keys = { '+3σ': 'p3', '+2σ': 'p2', '+1σ': 'p1', 'Mean': 'mean', '−1σ': 'm1', '−2σ': 'm2', '−3σ': 'm3' };
   const rows = [
     ['+3σ', L.p3, 'sell'], ['+2σ', L.p2, 'sell'], ['+1σ', L.p1, ''],
     ['Mean', L.mean, 'mean'], ['−1σ', L.m1, ''], ['−2σ', L.m2, 'buy'], ['−3σ', L.m3, 'buy'],
@@ -519,14 +521,17 @@ function renderSdLadder(p) {
   el.style.display = '';
   el.innerHTML =
     `<div class="sdl-head">📏 SD Ladder ตี 5 <span class="sdl-sub">สูตรตารางครู · Vol ${s.vol} · DTE ${s.dte} · 1SD $${s.sd1}` +
+    `${typeof s.basis === 'number' ? ` · basis −${s.basis}` : ''}` +
     `${s.locked ? '' : ' · <b class="sdl-warn">ค่าสด — ไม่ได้ล็อกตี 5</b>'}</span></div>` +
+    `<div class="sdl-cols"><span class="sdl-lab"></span><span class="sdl-px">CFD (โบรกคุณ)</span><span class="sdl-fut">Futures</span><span></span></div>` +
     `<div class="sdl-rows">` +
     rows.map(([lab, v, cls]) =>
       `<div class="sdl-row ${cls}"><span class="sdl-lab">${lab}</span><span class="sdl-px">${f(v)}</span>` +
+      `<span class="sdl-fut">${LF ? f(LF[keys[lab]]) : '—'}</span>` +
       `<span class="sdl-tag">${cls === 'sell' ? 'SELL zone' : cls === 'buy' ? 'BUY zone' : ''}</span></div>`
     ).join('') +
     `</div>` +
-    `<div class="sdl-note">โซนกลับตัว: SELL ${f(s.sell_zone[0])}–${f(s.sell_zone[1])} · BUY ${f(s.buy_zone[1])}–${f(s.buy_zone[0])} · ราคา CFD · ล็อกวันละครั้งตอนตี 5 ไม่ขยับระหว่างวัน</div>`;
+    `<div class="sdl-note">โซนกลับตัว (CFD): SELL ${f(s.sell_zone[0])}–${f(s.sell_zone[1])} · BUY ${f(s.buy_zone[1])}–${f(s.buy_zone[0])} · ล็อกวันละครั้งตอนตี 5 ไม่ขยับระหว่างวัน</div>`;
 }
 
 // sd_ladder.json is published right after the 05:00 lock (before any plan exists that day) —
