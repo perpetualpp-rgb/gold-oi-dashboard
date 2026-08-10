@@ -213,17 +213,21 @@ def sd_ladder(basis, s):
             try:
                 subprocess.run(["git", "-C", repo, "fetch", "origin", "-q"],
                                check=False, capture_output=True, timeout=60)
-                before = anchor.astimezone(_tz.utc).strftime("%Y-%m-%dT%H:%M:%S")
-                r = subprocess.run(["git", "-C", repo, "log", "origin/main", "--before=" + before,
-                                    "-1", "--format=%H", "--", "data/mirror/IntradayData.txt"],
+                # The teacher locks with the FIRST FRESH data of the new morning (her 2026-08-10
+                # sheet at 08:07 used the new series Vol 18/DTE 0.6, NOT Friday's dying series that
+                # the last pre-05:00 snapshot still held). So: EARLIEST mirror commit AT/AFTER the
+                # 05:00 anchor — deterministic forever once it exists (same commit for every run).
+                since = anchor.astimezone(_tz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                r = subprocess.run(["git", "-C", repo, "log", "origin/main", "--since=" + since,
+                                    "--reverse", "--format=%H", "--", "data/mirror/IntradayData.txt"],
                                    check=False, capture_output=True, text=True, timeout=30)
-                h = (r.stdout or "").strip()
+                h = ((r.stdout or "").strip().splitlines() or [""])[0]
                 if h:
                     r2 = subprocess.run(["git", "-C", repo, "show", f"{h}:data/mirror/IntradayData.txt"],
                                         check=False, capture_output=True, timeout=30)
                     if r2.returncode == 0:
                         meta = ps.parse(r2.stdout.decode("utf-8", "replace"))
-                        src, locked = "mirror@05:00", True
+                        src, locked = "first-after-05:00", True
             except Exception:
                 meta = None
         if not meta or not meta.get("future") or not meta.get("iv"):
@@ -267,14 +271,17 @@ def sd_publish(no_push=False):
     else:
         b, _c = _prev_basis_contract()
         basis = b if b is not None else BASIS_DEFAULT
-    try:
-        s = ps.compute_stats()
-    except Exception as e:
-        print(f"sd-only: live stats unavailable ({e}) — git-mirror lock only")
-        s = None
-    sdl = sd_ladder(basis, s)
-    if not sdl:
-        print("sd-only: ladder unavailable — nothing published")
+    today = _sd_anchor_dt().strftime("%Y-%m-%d")
+    try:                                    # idempotent: the task repeats all morning until locked
+        cur = json.load(open(SD_PATH, encoding="utf-8"))
+        if cur.get("day") == today and cur.get("locked"):
+            print(f"sd-only: already locked for {today} — no-op")
+            return
+    except Exception:
+        pass
+    sdl = sd_ladder(basis, None)            # git-history lock ONLY — never lock live/stale data
+    if not sdl or not sdl.get("locked"):
+        print("sd-only: no fresh post-05:00 snapshot yet — will retry on the next repetition")
         return
     with open(SD_PATH, "w", encoding="utf-8") as f:
         json.dump(sdl, f, ensure_ascii=False, indent=1)
