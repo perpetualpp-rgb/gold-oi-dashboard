@@ -540,6 +540,7 @@ def git_push(session):
     date = _bkk_now().strftime("%Y-%m-%d")
     run = lambda *a: subprocess.run(["git", "-C", REPO_DIR, *a], check=False, capture_output=True, text=True)
     run("add", "plan.json", "data")
+    run("add", "sd_ladder.json")     # separate call: tolerated if absent (a joint add would fail ALL paths)
     run("commit", "-m", f"Auto plan {session} {date}")
     for attempt in range(1, 4):
         r = run("push")
