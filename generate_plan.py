@@ -217,17 +217,31 @@ def sd_ladder(basis, s):
                 # sheet at 08:07 used the new series Vol 18/DTE 0.6, NOT Friday's dying series that
                 # the last pre-05:00 snapshot still held). So: EARLIEST mirror commit AT/AFTER the
                 # 05:00 anchor — deterministic forever once it exists (same commit for every run).
-                since = anchor.astimezone(_tz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+                # TZ MUST be explicit: a naive timestamp makes git assume LOCAL (ICT) time — that
+                # bug shifted "after 05:00 today" to "after 22:00 last night" and locked Monday's
+                # dying-series leftovers (DTE 0.07) on 2026-08-11. %z appends +0700.
+                since = anchor.strftime("%Y-%m-%dT%H:%M:%S%z")
                 r = subprocess.run(["git", "-C", repo, "log", "origin/main", "--since=" + since,
                                     "--reverse", "--format=%H", "--", "data/mirror/IntradayData.txt"],
                                    check=False, capture_output=True, text=True, timeout=30)
-                h = ((r.stdout or "").strip().splitlines() or [""])[0]
-                if h:
+                cand, last = None, None
+                for h in (r.stdout or "").strip().splitlines()[:20]:
                     r2 = subprocess.run(["git", "-C", repo, "show", f"{h}:data/mirror/IntradayData.txt"],
                                         check=False, capture_output=True, timeout=30)
-                    if r2.returncode == 0:
-                        meta = ps.parse(r2.stdout.decode("utf-8", "replace"))
-                        src, locked = "first-after-05:00", True
+                    if r2.returncode != 0:
+                        continue
+                    m = ps.parse(r2.stdout.decode("utf-8", "replace"))
+                    if not (m.get("future") and m.get("iv")):
+                        continue
+                    last = m
+                    # freshness guard: a real new-morning series shows DTE ≥ ~0.3 (next 12:30 ET is
+                    # most of a day away); ≤0.2 = yesterday's dying series still cached — skip it.
+                    if float(m.get("dte") or 0) >= 0.3:
+                        cand = m
+                        break
+                if cand or last:
+                    meta = cand or last                    # no fresh one all morning → freshest available
+                    src, locked = ("first-after-05:00" if cand else "late-fallback"), True
             except Exception:
                 meta = None
         if not meta or not meta.get("future") or not meta.get("iv"):
