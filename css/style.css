@@ -392,6 +392,7 @@ header {
 .sdl-row.sell .sdl-tag { color: var(--down); }
 .sdl-row.buy .sdl-tag { color: var(--up); }
 .sdl-note { margin-top: 9px; font-size: 10.5px; color: var(--mut); }
+.sdl-stale { margin: 0 0 9px; padding: 7px 10px; border-radius: 7px; background: rgba(201,146,10,0.13); border: 1px solid #c9920a; font-size: 11.5px; }
 .senti-wrap { margin-bottom: 24px; }
 .senti-frame {
   border: 1px solid var(--line);

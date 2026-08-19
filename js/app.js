@@ -518,8 +518,14 @@ function renderSdLadder(p) {
     ['+3σ', L.p3, 'sell'], ['+2σ', L.p2, 'sell'], ['+1σ', L.p1, ''],
     ['Mean', L.mean, 'mean'], ['−1σ', L.m1, ''], ['−2σ', L.m2, 'buy'], ['−3σ', L.m3, 'buy'],
   ];
+  // stale-day banner: the ladder's day is older than "today" (05:00-anchored, ICT) → the source
+  // (pageth) hasn't published a fresh morning snapshot yet; the lock task retries every 30 min.
+  const todayKey = (() => { const d = new Date(Date.now() - 5 * 3600 * 1000);
+    return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); })();
+  const stale = s.day && s.day < todayKey;
   el.style.display = '';
   el.innerHTML =
+    (stale ? `<div class="sdl-stale">⏳ ยังเป็นค่าของ ${s.day} — ต้นทาง (pageth) ยังไม่ส่งข้อมูลเช้าวันนี้ ระบบจะล็อกใหม่เองทันทีที่มา (เช็คทุก 30 นาที)</div>` : '') +
     `<div class="sdl-head">📏 SD Ladder ตี 5 <span class="sdl-sub">สูตรตารางครู · Vol ${s.vol} · DTE ${s.dte} · 1SD $${s.sd1}` +
     `${typeof s.basis === 'number' ? ` · basis −${s.basis}` : ''}` +
     `${s.locked ? '' : ' · <b class="sdl-warn">ค่าสด — ไม่ได้ล็อกตี 5</b>'}</span></div>` +

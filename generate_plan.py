@@ -245,11 +245,11 @@ def sd_ladder(basis, s):
             except Exception:
                 meta = None
         if not meta or not meta.get("future") or not meta.get("iv"):
+            if s is None:                                    # sd-only mode: no live fallback by design
+                return None                                  # (never lock stale/live data — retry later)
             # fallback: current stats, clearly flagged as NOT the locked 05:00 value
             meta = {"future": s["future"], "iv": s["atm_iv"], "dte": s["dte"]}
             src, locked = "live", False
-        if (not meta or not meta.get("future") or not meta.get("iv")) and s is None:
-            return None                                      # sd-only mode with no live fallback available
         vol = round(float(meta["iv"]), 2)
         dte = _dte_as_of_anchor(float(meta["dte"]), anchor)
         if not vol or not dte:
