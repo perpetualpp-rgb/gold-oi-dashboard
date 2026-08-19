@@ -199,14 +199,18 @@ def _dte_as_of_anchor(header_days, anchor):
     return max(0.05, min(round(header_days) + diff / (24 * 60.0), 10.0))
 
 
-def sd_ladder(basis, s):
+def sd_ladder(basis, s, manual=None):
     """Locked 05:00 SD ladder in CFD prices (BUY zone −2SD..−3SD / SELL zone +2SD..+3SD).
-    Never raises — returns None if everything fails (the ladder is an add-on, not a dependency)."""
+    `manual` = {"future","iv","dte"} read by the user from CME QuikStrike / the teacher sheet
+    (used when pageth is down — src "manual"). Never raises — returns None if everything fails."""
     import math
     try:
         anchor = _sd_anchor_dt()
         meta, src, locked = None, "live", False
         repo = ps._repo_dir()
+        if manual:
+            meta, src, locked = dict(manual), "manual", True
+            repo = None
         if repo:
             import subprocess
             from datetime import timezone as _tz
@@ -288,12 +292,17 @@ def sd_publish(no_push=False):
     today = _sd_anchor_dt().strftime("%Y-%m-%d")
     try:                                    # idempotent: the task repeats all morning until locked
         cur = json.load(open(SD_PATH, encoding="utf-8"))
-        if cur.get("day") == today and cur.get("locked"):
+        if cur.get("day") == today and cur.get("locked") and not any(a.startswith("--sd-manual=") for a in sys.argv):
             print(f"sd-only: already locked for {today} — no-op")
             return
     except Exception:
         pass
-    sdl = sd_ladder(basis, None)            # git-history lock ONLY — never lock live/stale data
+    manual = None
+    for a in sys.argv:                          # --sd-manual=FUT,VOL,DTE  (pageth down → user-read CME values)
+        if a.startswith("--sd-manual="):
+            f_, v_, d_ = (float(x) for x in a.split("=", 1)[1].split(","))
+            manual = {"future": f_, "iv": v_, "dte": d_}
+    sdl = sd_ladder(basis, None, manual=manual)   # git-history lock ONLY — never lock live/stale data
     if not sdl or not sdl.get("locked"):
         print("sd-only: no fresh post-05:00 snapshot yet — will retry on the next repetition")
         return
