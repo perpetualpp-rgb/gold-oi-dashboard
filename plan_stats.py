@@ -52,11 +52,18 @@ def tz_bkk():
 
 
 def fetch(url):
-    """Fetch a data file; try primary (pageth) then our mirror, each with a couple of retries so a
+    """Fetch a data file. MANUAL OVERRIDE: if env GOLD_MANUAL_DIR is set, read <dir>/OIData.txt /
+    IntradayData.txt instead (files transcribed from CME QuikStrike by the user when pageth is
+    down — 2026-08-19). Otherwise try primary (pageth) then our mirror, each with a couple of retries so a
     transient GitHub 429 (rate-limit) doesn't kill the whole run. NO cache-buster — GitHub's CDN
     cache (~5 min) is fresh enough for OI/intraday and stops us hammering the rate-limited origin
     (the old `?t=<ts>` forced a cache MISS on every call → 429 → plan failed, e.g. 2026-07-08 13:00)."""
     import time as _t
+    mdir = os.environ.get("GOLD_MANUAL_DIR", "").strip()
+    if mdir:
+        mp = os.path.join(mdir, url.rsplit("/", 1)[-1])
+        with open(mp, encoding="utf-8") as f:
+            return f.read()
     last = ""
     for u in (url, MIRROR.get(url)):
         if not u:

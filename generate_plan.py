@@ -997,7 +997,19 @@ def main():
             json.dump(plan, f, ensure_ascii=False, indent=2)
         print(f"plan.json: bias={plan['bias']} future={plan['future']} session={plan['session']} "
               f"res={[r['price'] for r in plan['resistance']]} sup={[s_['price'] for s_ in plan['support']]}")
-        if plan.get("sd_ladder"):                          # keep the standalone daily-lock file in sync
+        # SD ladder: the 05:00 lock file is authoritative for the day. If today's locked ladder
+        # already exists (git-lock or --sd-manual), EMBED IT into the plan (so Telegram == web)
+        # instead of overwriting it with a live/unlocked recomputation.
+        try:
+            cur_sd = json.load(open(SD_PATH, encoding="utf-8"))
+        except Exception:
+            cur_sd = None
+        today_sd = _sd_anchor_dt().strftime("%Y-%m-%d")
+        if cur_sd and cur_sd.get("day") == today_sd and cur_sd.get("locked"):
+            plan["sd_ladder"] = cur_sd
+            with open(PLAN_PATH, "w", encoding="utf-8") as f:
+                json.dump(plan, f, ensure_ascii=False, indent=2)
+        elif plan.get("sd_ladder") and plan["sd_ladder"].get("locked"):
             try:
                 with open(SD_PATH, "w", encoding="utf-8") as f:
                     json.dump(plan["sd_ladder"], f, ensure_ascii=False, indent=1)
