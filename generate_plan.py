@@ -642,16 +642,35 @@ def archive_oi_and_diff():
 # ── #3: plan log + outcome evaluation (approx, PAXG 1h candles ≈ CFD/XAUUSD) ──
 
 def _fetch_candles(start_iso, end_iso):
-    """Coinbase PAXG-USD hourly candles [[t,low,high,open,close,vol]...] oldest-first, or None."""
-    url = ("https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=3600"
-           f"&start={urllib.parse.quote(start_iso)}&end={urllib.parse.quote(end_iso)}")
+    """Coinbase PAXG-USD hourly candles [[t,low,high,open,close,vol]...] oldest-first, or None.
+    CHUNKED: Coinbase caps one request at 300 candles — a single call for a >12-day window
+    returns 400 and the whole evaluation silently stalled (stuck 2026-08: one perma-'open'
+    plan from 07-02 stretched the window to ~56 days → nothing evaluated for weeks)."""
+    from datetime import datetime, timedelta, timezone as _tz
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "gold-oi-dashboard"})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            rows = json.load(r)
-        return sorted(rows, key=lambda x: x[0]) if isinstance(rows, list) else None
+        t0 = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        t1 = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
     except Exception:
         return None
+    out, cur, got_any = {}, t0, False
+    while cur < t1:
+        nxt = min(cur + timedelta(hours=290), t1)
+        url = ("https://api.exchange.coinbase.com/products/PAXG-USD/candles?granularity=3600"
+               f"&start={urllib.parse.quote(cur.strftime('%Y-%m-%dT%H:%M:%SZ'))}"
+               f"&end={urllib.parse.quote(nxt.strftime('%Y-%m-%dT%H:%M:%SZ'))}")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "gold-oi-dashboard"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                rows = json.load(r)
+            if isinstance(rows, list):
+                for c in rows:
+                    out[c[0]] = c
+                got_any = True
+        except Exception:
+            pass                                    # a failed chunk skips its span, rest still evaluate
+        cur = nxt
+        time.sleep(0.4)                             # stay well under Coinbase rate limits
+    return sorted(out.values(), key=lambda x: x[0]) if got_any else None
 
 
 def _judge_entry(en, candles, plan_ts):
@@ -680,7 +699,12 @@ def _judge_entry(en, candles, plan_ts):
                     return "tp"
             continue
         if hours_seen > WATCH_H:
-            return "open"
+            # TIME-STOP (daytrade discipline: flat by the watch window, never hold forever).
+            # Judge at the boundary close — favorable = tp, else sl. Before this, an entered
+            # trade that hit neither level stayed 'open' FOREVER and jammed the whole evaluator.
+            close = c[4]
+            win = (close > entry) if long_ else (close < entry)
+            return "tp" if win else "sl"
         hit_sl = (lo <= sl) if long_ else (hi >= sl)
         hit_tp = (hi >= tp1) if long_ else (lo <= tp1)
         if hit_sl:
