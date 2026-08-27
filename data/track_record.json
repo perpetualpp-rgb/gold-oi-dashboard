@@ -1,23 +1,14 @@
 {
- "updated_at": "2026-08-27T13:00+07:00",
- "n_plans": 154,
+ "updated_at": "2026-08-27T19:00+07:00",
+ "n_plans": 155,
  "stats": {
   "tp": 44,
   "sl": 129,
-  "no_entry": 132,
-  "open": 1
+  "no_entry": 133,
+  "open": 3
  },
  "win_rate": 25.4,
  "recent": [
-  {
-   "ts": "2026-08-24T13:00",
-   "session": "13:00",
-   "bias": "neutral",
-   "outcomes": [
-    "sl",
-    "no_entry"
-   ]
-  },
   {
    "ts": "2026-08-24T19:00",
    "session": "19:00",
@@ -68,7 +59,7 @@
    "session": "13:00",
    "bias": "neutral",
    "outcomes": [
-    "open",
+    "no_entry",
     "sl"
    ]
   },
@@ -93,6 +84,16 @@
   {
    "ts": "2026-08-27T13:00",
    "session": "13:00",
+   "bias": "neutral",
+   "outcomes": [
+    "open",
+    "open",
+    "open"
+   ]
+  },
+  {
+   "ts": "2026-08-27T19:00",
+   "session": "19:00",
    "bias": "neutral",
    "outcomes": null
   }
