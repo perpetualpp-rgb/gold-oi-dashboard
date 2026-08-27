@@ -206,6 +206,13 @@ def sd_ladder(basis, s, manual=None):
     import math
     try:
         anchor = _sd_anchor_dt()
+        if not manual:                                    # today already locked (git or --sd-manual)?
+            try:                                          # reuse it VERBATIM — one ladder everywhere
+                cur = json.load(open(SD_PATH, encoding="utf-8"))
+                if cur.get("day") == anchor.strftime("%Y-%m-%d") and cur.get("locked") and cur.get("levels"):
+                    return cur
+            except Exception:
+                pass
         meta, src, locked = None, "live", False
         repo = ps._repo_dir()
         if manual:
@@ -497,6 +504,58 @@ def build_plan(s):
     g_dn = next((g for g in reversed(grid) if g["price"] < fut), None)
     sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
 
+    # ── ⭐ CONFLUENCE (her rule 2026-08-27): a KEY OI level (top wall / ท้าย OI / magnet) sitting
+    # inside or near an SD reversal zone (BUY −2..−3SD / SELL +2..+3SD) = two INDEPENDENT systems
+    # pointing at the same price → a high-significance entry. Promoted to the top of the plan.
+    confluence = []
+    if sdl:
+        Lsd = sdl["levels"]
+        tol = max(0.15 * sdl["sd1"], 5.0)                 # "ใกล้" = within this of the zone edge
+        sell_rng = (Lsd["p2"] - tol, Lsd["p3"] + tol)
+        buy_rng = (Lsd["m3"] - tol, Lsd["m2"] + tol)
+        sig_name = {"p3": "+3σ", "p2": "+2σ", "p1": "+1σ", "mean": "Mean", "m1": "−1σ", "m2": "−2σ", "m3": "−3σ"}
+        def _near_sigma(px):
+            k, d = min(((k, abs(px - v)) for k, v in Lsd.items()), key=lambda x: x[1])
+            return sig_name[k], round(d, 1)
+        keys = [("res", w["strike"], w["oi"], "กำแพง Call") for w in s["resistance_call_walls"]]
+        keys += [("sup", w["strike"], w["oi"], "กำแพง Put") for w in s["support_put_walls"]]
+        if call_tail.get("strike"):
+            keys.append(("res", call_tail["strike"], call_tail.get("oi", 0), "ท้าย OI Call"))
+        if put_tail.get("strike"):
+            keys.append(("sup", put_tail["strike"], put_tail.get("oi", 0), "ท้าย OI Put"))
+        if magnet.get("strike"):
+            keys.append(("res" if magnet["strike"] > fut else "sup", magnet["strike"],
+                         magnet.get("oi", 0), "Magnet"))
+        seen_k = set()
+        for kind, strike, oi_ct, label in keys:
+            if strike in seen_k:
+                continue
+            px = cfd(strike)
+            if kind == "res" and sell_rng[0] <= px <= sell_rng[1]:
+                sig, d = _near_sigma(px)
+                confluence.append({"side": "short", "price": int(strike), "cfd": px, "oi": int(oi_ct or 0),
+                                   "label": label, "sigma": sig, "dist": d})
+                seen_k.add(strike)
+            elif kind == "sup" and buy_rng[0] <= px <= buy_rng[1]:
+                sig, d = _near_sigma(px)
+                confluence.append({"side": "long", "price": int(strike), "cfd": px, "oi": int(oi_ct or 0),
+                                   "label": label, "sigma": sig, "dist": d})
+                seen_k.add(strike)
+        confluence.sort(key=lambda x: (x["dist"], -x["oi"]))
+        if confluence:
+            b = confluence[0]                              # strongest → promoted to the FIRST entry
+            ef = b["price"]
+            if b["side"] == "short":
+                entries.insert(0, setup("short", f"⭐ นัยยะสำคัญ OI×SD · {b['label']} {b['price']} ใน SELL zone",
+                                        ef, ef + buf, [round(Lsd["p1"] + basis), round(Lsd["mean"] + basis)],
+                                        f"{b['label']} (OI {b['oi']}) ทับ {b['sigma']} ของ SD Ladder (ห่าง ${b['dist']}) "
+                                        f"— กำแพง MM + สถิติสุดขั้วชี้จุดเดียวกัน รอไส้ H1 reject แล้ว Short เป้ากลับหา Mean"))
+            else:
+                entries.insert(0, setup("long", f"⭐ นัยยะสำคัญ OI×SD · {b['label']} {b['price']} ใน BUY zone",
+                                        ef, ef - buf, [round(Lsd["m1"] + basis), round(Lsd["mean"] + basis)],
+                                        f"{b['label']} (OI {b['oi']}) ทับ {b['sigma']} ของ SD Ladder (ห่าง ${b['dist']}) "
+                                        f"— กำแพง MM + สถิติสุดขั้วชี้จุดเดียวกัน รอไส้ H1 reject แล้ว Long เป้ากลับหา Mean"))
+
     # ── risk (regime-aware) ──
     bits = []
     if regime == "high":
@@ -516,6 +575,9 @@ def build_plan(s):
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
     if g_up and g_dn:
         bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
+    if confluence:
+        cs = " · ".join(f"{c['label']} {c['price']} (CFD {c['cfd']:g}) ทับ {c['sigma']}" for c in confluence[:3])
+        bits.append(f"⭐ นัยยะสำคัญ OI×SD: {cs} — จุดที่สองระบบชี้ตรงกัน เฝ้าเป็นพิเศษ")
     if cot:
         lean = {"down": "สุดขั้ว → สวน = น้ำหนักลง", "up": "สุดขั้ว → สวน = น้ำหนักขึ้น",
                 "flat": "ยังไม่สุดขั้ว → แทบไม่มีน้ำหนัก (รอราคายืนยัน)"}[cot["retail_lean"]]
@@ -563,6 +625,7 @@ def build_plan(s):
         "entries": entries,
         "grid": grid,
         "sd_ladder": sdl,
+        "confluence": confluence,
         "cot": cot,
         "risk": risk,
         "source": "The Invisible Money + OI มีอยู่จริง + OI/Vol (CME)",
