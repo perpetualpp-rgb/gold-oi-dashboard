@@ -66,6 +66,9 @@ def fetch_spot():
     return None
 
 
+OI_SIGNIFICANT = 100   # her rule 2026-08-31: a zone is tradeable-significant only when the OI
+                       # there exceeds 100 contracts (round number + thin OI = not significant)
+
 COT_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
 COT_EXTREME = 60000   # |Small-Specs net| ≥ this = retail "สุดขั้ว" (rough fallback — no history fetched, not a true percentile). Fade only counts when extreme; comm/spec are mirror images (zero-sum) so they are ONE axis, not two votes.
 
@@ -163,12 +166,12 @@ def grid_levels(fut, sd, basis, walls, sdl=None):
         lvl = base + k * 50
         if lvl <= 0 or lvl < lo or lvl > hi:
             continue
-        out.append({"price": lvl, "cfd": round(lvl - basis, 1),
-                    "r100": lvl % 100 == 0, "oi": any(abs(lvl - w) <= 15 for w in walls)})
+        out.append({"price": lvl, "cfd": round(lvl - basis, 1), "r100": lvl % 100 == 0,
+                    "oi": any(abs(lvl - w) <= 15 and o >= OI_SIGNIFICANT for w, o in walls.items())})
     if not out:                                    # degenerate σ — never return an empty grid
         for lvl in (base, base + 50):
-            out.append({"price": lvl, "cfd": round(lvl - basis, 1),
-                        "r100": lvl % 100 == 0, "oi": any(abs(lvl - w) <= 15 for w in walls)})
+            out.append({"price": lvl, "cfd": round(lvl - basis, 1), "r100": lvl % 100 == 0,
+                        "oi": any(abs(lvl - w) <= 15 and o >= OI_SIGNIFICANT for w, o in walls.items())})
     return out
 
 
@@ -507,10 +510,12 @@ def build_plan(s):
         ]
 
     # ── $50 Grid (book Ch6): round-level Block-Trade S/R, flag the ones on a dense OI wall ──
-    walls = {w["strike"] for w in s["resistance_call_walls"]} | {w["strike"] for w in s["support_put_walls"]}
+    walls = {}                                     # strike -> OI count (her ≥100-contract rule needs sizes)
+    for w in s["resistance_call_walls"] + s["support_put_walls"]:
+        walls[w["strike"]] = max(walls.get(w["strike"], 0), int(w.get("oi", 0) or 0))
     for tw in (magnet, call_tail, put_tail):
         if tw.get("strike"):
-            walls.add(tw["strike"])
+            walls[tw["strike"]] = max(walls.get(tw["strike"], 0), int(tw.get("oi", 0) or 0))
     sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
     grid = grid_levels(fut, sd, basis, walls, sdl)   # $50 grid confined to the day's ±3SD zone
     g_up = next((g for g in grid if g["price"] > fut), None)
@@ -541,6 +546,8 @@ def build_plan(s):
         seen_k = set()
         for kind, strike, oi_ct, label in keys:
             if strike in seen_k:
+                continue
+            if (oi_ct or 0) < OI_SIGNIFICANT:      # her rule: OI must exceed 100 contracts to matter
                 continue
             px = cfd(strike)
             if kind == "res" and sell_rng[0] <= px <= sell_rng[1]:
