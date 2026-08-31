@@ -46,7 +46,7 @@ BASIS_DEFAULT = 25.0   # last manual anchor: her LIVE ArmRiley vs Dec, 2026-07-3
 # (feeds ~4044, her FOREX.com XAUUSD 4074). A "live" fut−spot from lagging inputs read 46 while her
 # live-vs-live ArmRiley read 25 — HER SCREEN IS GROUND TRUTH. While set, this value is used verbatim
 # (basis_live=false). **SET BACK TO None once feeds re-converge with her broker** (check: gold-api−4 ≈ her price).
-BASIS_OVERRIDE = 17.5   # her teacher sheet 2026-08-27 06:59: GCV26 open 4614.3 - spot 4596.8 = 17.5 (20 on 08-24, 25 since 07-31)
+BASIS_OVERRIDE = 15.0   # her teacher sheet 2026-08-31 07:52: GCV26 open 4448.0 - spot 4433.0 = 15 (17.5 on 08-27, 20 on 08-24, 25 since 07-31)
 # Calibration to the user's broker: free XAU spot feeds sit a few $ off any specific broker.
 # Subtract this so spot_cfd ≈ her Pepperstone XAUUSD (gold-api ran ~$4 above it). Tune if it drifts.
 SPOT_ADJUST = 4.0
@@ -145,16 +145,28 @@ def _prev_basis_contract():
         return None, None
 
 
-def grid_levels(fut, sd, basis, walls):
+def grid_levels(fut, sd, basis, walls, sdl=None):
     """Book 'The Invisible Money' Ch6 ($50 Grid): every round $50/$100 futures level is a natural
-    S/R because big players cluster Block Trades there → OI builds up → Market Makers must
-    delta-hedge around it. Returns the nearest levels around price (3 above, 3–4 below — the base
-    rounds down), flagging ones that sit on a dense OI wall (those are the strongest)."""
+    S/R because big players cluster Block Trades there → OI builds up → MMs must delta-hedge.
+    HER RULE (2026-08-31): only show round levels inside the DAY'S REALISTIC ZONE — the locked SD
+    ladder's ±3SD around its center (fallback ±2.5 option-σ around price). The old fixed ±3 steps
+    reached $150-200 out, far beyond where price can realistically trade that day. Levels sitting
+    on a dense OI wall (±$15) keep the ★oi flag — those are the truly significant ones."""
+    if sdl and sdl.get("sd1") and sdl.get("center_fut"):
+        c_fut = float(sdl["center_fut"])
+        lo, hi = c_fut - 3 * float(sdl["sd1"]), c_fut + 3 * float(sdl["sd1"])
+    else:
+        lo, hi = fut - 2.5 * sd, fut + 2.5 * sd
     base = int(fut // 50 * 50)
     out = []
-    for k in range(-3, 4):
+    for k in range(-5, 6):
         lvl = base + k * 50
-        if lvl > 0:
+        if lvl <= 0 or lvl < lo or lvl > hi:
+            continue
+        out.append({"price": lvl, "cfd": round(lvl - basis, 1),
+                    "r100": lvl % 100 == 0, "oi": any(abs(lvl - w) <= 15 for w in walls)})
+    if not out:                                    # degenerate σ — never return an empty grid
+        for lvl in (base, base + 50):
             out.append({"price": lvl, "cfd": round(lvl - basis, 1),
                         "r100": lvl % 100 == 0, "oi": any(abs(lvl - w) <= 15 for w in walls)})
     return out
@@ -499,10 +511,10 @@ def build_plan(s):
     for tw in (magnet, call_tail, put_tail):
         if tw.get("strike"):
             walls.add(tw["strike"])
-    grid = grid_levels(fut, sd, basis, walls)
+    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
+    grid = grid_levels(fut, sd, basis, walls, sdl)   # $50 grid confined to the day's ±3SD zone
     g_up = next((g for g in grid if g["price"] > fut), None)
     g_dn = next((g for g in reversed(grid) if g["price"] < fut), None)
-    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
 
     # ── ⭐ CONFLUENCE (her rule 2026-08-27): a KEY OI level (top wall / ท้าย OI / magnet) sitting
     # inside or near an SD reversal zone (BUY −2..−3SD / SELL +2..+3SD) = two INDEPENDENT systems
