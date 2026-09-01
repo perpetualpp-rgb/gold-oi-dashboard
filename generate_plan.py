@@ -335,6 +335,72 @@ def sd_publish(no_push=False):
         git_push("05:00-SD")
 
 
+def _pageth_age_min():
+    """Minutes since pageth last pushed IntradayData (api.github.com; fallback: our git mirror)."""
+    from datetime import datetime, timezone as _tz
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/pageth/Vol2VolData/commits?path=IntradayData.txt&per_page=1",
+            headers={"User-Agent": "gold-oi-dashboard"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.load(r)
+        t = datetime.fromisoformat(d[0]["commit"]["committer"]["date"].replace("Z", "+00:00"))
+        return (datetime.now(_tz.utc) - t).total_seconds() / 60.0
+    except Exception:
+        pass
+    try:
+        repo = ps._repo_dir()
+        r = subprocess.run(["git", "-C", repo, "log", "-1", "--format=%ct", "origin/main",
+                            "--", "data/mirror/IntradayData.txt"],
+                           check=False, capture_output=True, text=True, timeout=30)
+        ct = int((r.stdout or "0").strip() or 0)
+        if ct:
+            return (time.time() - ct) / 60.0
+    except Exception:
+        pass
+    return None
+
+
+def _gc_yahoo_candidates():
+    """Yahoo symbols for the GC months pageth may ride: front-by-Yahoo + next 3 active months."""
+    from datetime import date
+    mm_codes = {2: "G", 4: "J", 6: "M", 8: "Q", 10: "V", 12: "Z"}
+    today = date.today()
+    out, y, m, added = ["GC=F"], today.year, today.month, 0
+    while added < 3:
+        if m in mm_codes:
+            out.append(f"GC{mm_codes[m]}{str(y)[2:]}.CMX")
+            added += 1
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return out
+
+
+def _fresh_future(pageth_fut, sd):
+    """LAYER-2 re-anchor (her fix 2026-09-01): live CME quote for pageth's own contract, identified
+    by closest-to-pageth proximity (a wrong month adds its carry spread on top of any real move, so
+    the same contract stays closest). Only re-anchor on a MEANINGFUL move (>= max(0.5σ, $8)) and
+    reject absurd readings (> 4σ = wrong contract / broken feed). Returns float or None."""
+    best = None
+    for sym in _gc_yahoo_candidates():
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?interval=1m&range=1d"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                px = float(json.load(r)["chart"]["result"][0]["meta"]["regularMarketPrice"])
+            if px > 0 and (best is None or abs(px - pageth_fut) < abs(best - pageth_fut)):
+                best = px
+        except Exception:
+            continue
+    if best is None:
+        return None
+    diff = abs(best - pageth_fut)
+    if diff < max(0.5 * sd, 8.0) or diff > 4.0 * sd:
+        return None
+    return round(best, 1)
+
+
 def build_plan(s):
     fut = s["future"]
     sd = s["sigma_points"] or 1
@@ -594,6 +660,11 @@ def build_plan(s):
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
     if g_up and g_dn:
         bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
+    if s.get("reanchored"):
+        ra = s["reanchored"]
+        bits.append(f"⚠ ข้อมูล pageth อายุ {ra['age_min']:.0f} นาทีตอนสร้างแผน — ปรับราคาเป็น CME สด {ra['to']:g} (จาก {ra['from']:g}) แล้วคำนวณต้าน/รับ-จุดเข้าจากตำแหน่งจริง (กำแพง OI = ชุดล่าสุดที่มี)")
+    elif (s.get("data_age_min") or 0) > 40:
+        bits.append(f"⚠ ข้อมูลราคาอายุ ~{s['data_age_min']:.0f} นาที และหาแหล่งสดไม่ได้ — ราคาจริงอาจวิ่งหนีจากแผน เทียบจอโบรกก่อนใช้ทุกจุด")
     if confluence:
         cs = " · ".join(f"{c['label']} {c['price']} (CFD {c['cfd']:g}) ทับ {c['sigma']}" for c in confluence[:3])
         bits.append(f"⭐ นัยยะสำคัญ OI×SD: {cs} — จุดที่สองระบบชี้ตรงกัน เฝ้าเป็นพิเศษ")
@@ -628,6 +699,8 @@ def build_plan(s):
         "session": session,
         "future": fut,
         "contract": s["contract"],
+        "data_age_min": s.get("data_age_min"),
+        "reanchored": s.get("reanchored"),
         "spot_cfd": round(spot, 1),
         "basis": basis,
         "basis_live": basis_live,
@@ -948,7 +1021,8 @@ def notify_telegram(plan, chart_path=None):
     lines = [
         f"📋 แผนทอง GC · รอบ {plan['session']} · {plan['updated_at'][:10]}",
         f"{bias_icon}",
-        f"💱 CFD ≈ {fmt1(plan['spot_cfd'])} (fut {fmt1(plan['future'])} · basis −{plan['basis']:g})",
+        f"💱 CFD ≈ {fmt1(plan['spot_cfd'])} (fut {fmt1(plan['future'])} · basis −{plan['basis']:g})"
+        + (" · ราคาสด CME" if plan.get("reanchored") else ""),
         "",
         f"แนวต้าน: {lv(plan['resistance'])}",
         f"แนวรับ: {lv(plan['support'])}",
@@ -1088,7 +1162,32 @@ def main():
         if "--sd-only" in sys.argv:              # 05:05 task: publish today's SD ladder right away
             sd_publish(no_push)
             return
+        # LAYER 1 (her fix 2026-09-01): never build a plan on stale price data — wait briefly for a
+        # fresh pageth push first (6-min budget fits the task's PT10M ExecutionTimeLimit).
+        age = _pageth_age_min()
+        if age is not None and age > 40 and "--no-wait" not in sys.argv:
+            print(f"pageth data age {age:.0f} min — waiting up to 6 min for a fresh push")
+            deadline = time.time() + 6 * 60
+            while time.time() < deadline:
+                time.sleep(90)
+                age = _pageth_age_min()
+                if age is None or age <= 40:
+                    print(f"fresh data arrived (age {0 if age is None else age:.0f} min)")
+                    break
         stats = ps.compute_stats()
+        stats["data_age_min"] = round(age, 1) if age is not None else None
+        # LAYER 2: still stale -> re-anchor price-dependent parts to a live CME quote (walls keep
+        # pageth's OI — OI moves slowly; it's the PRICE POSITION that must be right).
+        if age is not None and age > 40:
+            live = _fresh_future(stats["future"], stats["sigma_points"] or 1)
+            if live:
+                old_fut = stats["future"]
+                stats["future_chg"] = round(stats["future_chg"] + (live - old_fut), 1)
+                stats["future"] = live
+                if stats.get("oi_weighted_mean") and stats.get("sigma_points"):
+                    stats["z_vs_oi_mean"] = round((live - stats["oi_weighted_mean"]) / stats["sigma_points"], 2)
+                stats["reanchored"] = {"from": old_fut, "to": live, "age_min": round(age)}
+                print(f"re-anchored price: {old_fut} -> {live} (data age {age:.0f} min)")
         plan = build_plan(stats)
         if mt5_only:                                    # VPS: just write gold_plan.csv for the EA, then stop
             write_mt5_plan(plan)
