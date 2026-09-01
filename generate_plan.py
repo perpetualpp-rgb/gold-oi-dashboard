@@ -628,18 +628,30 @@ def build_plan(s):
                 seen_k.add(strike)
         confluence.sort(key=lambda x: (x["dist"], -x["oi"]))
         if confluence:
-            b = confluence[0]                              # strongest → promoted to the FIRST entry
-            ef = b["price"]
-            if b["side"] == "short":
-                entries.insert(0, setup("short", f"⭐ นัยยะสำคัญ OI×SD · {b['label']} {b['price']} ใน SELL zone",
-                                        ef, ef + buf, [round(Lsd["p1"] + basis), round(Lsd["mean"] + basis)],
-                                        f"{b['label']} (OI {b['oi']}) ทับ {b['sigma']} ของ SD Ladder (ห่าง ${b['dist']}) "
-                                        f"— กำแพง MM + สถิติสุดขั้วชี้จุดเดียวกัน รอไส้ H1 reject แล้ว Short เป้ากลับหา Mean"))
-            else:
-                entries.insert(0, setup("long", f"⭐ นัยยะสำคัญ OI×SD · {b['label']} {b['price']} ใน BUY zone",
-                                        ef, ef - buf, [round(Lsd["m1"] + basis), round(Lsd["mean"] + basis)],
-                                        f"{b['label']} (OI {b['oi']}) ทับ {b['sigma']} ของ SD Ladder (ห่าง ${b['dist']}) "
-                                        f"— กำแพง MM + สถิติสุดขั้วชี้จุดเดียวกัน รอไส้ H1 reject แล้ว Long เป้ากลับหา Mean"))
+            # HER RULE (2026-09-01): promote confluences as a LADDER per side — ไม้ 1 at the
+            # shallower zone (≈2SD = the 2SD-Reversal main entry), ไม้ 2 at the deeper (≈3SD)
+            # add-on. Previously only the single strongest was promoted → the −3σ buy became
+            # the only entry while the −2σ buy hid in the risk note; price bounced off −2σ and
+            # she rightly asked "ทำไมแผนไม่มี buy".
+            by_side = {}
+            for c in confluence:
+                by_side.setdefault(c["side"], []).append(c)
+            promoted = []
+            for sd_ in sorted(by_side, key=lambda k: min(c["dist"] for c in by_side[k])):
+                grp = sorted(by_side[sd_], key=lambda c: -c["cfd"] if sd_ == "long" else c["cfd"])
+                for i, b in enumerate(grp[:2], 1):
+                    ef = b["price"]
+                    tag = f"⭐ นัยยะสำคัญ OI×SD ไม้ {i} · {b['label']} {b['price']} ({b['sigma']})"
+                    role = "จุดเข้าหลัก (โซนตื้น)" if i == 1 else "จุดเติม (โซนลึก — RR ดีกว่า)"
+                    note = (f"{b['label']} (OI {b['oi']}) ทับ {b['sigma']} ห่าง ${b['dist']} — {role} "
+                            f"รอไส้ H1 reject แล้วค่อยเข้า เป้ากลับหา Mean")
+                    if sd_ == "short":
+                        promoted.append(setup("short", tag, ef, ef + buf,
+                                              [round(Lsd["p1"] + basis), round(Lsd["mean"] + basis)], note))
+                    else:
+                        promoted.append(setup("long", tag, ef, ef - buf,
+                                              [round(Lsd["m1"] + basis), round(Lsd["mean"] + basis)], note))
+            entries[:0] = promoted
 
     # ── risk (regime-aware) ──
     bits = []
