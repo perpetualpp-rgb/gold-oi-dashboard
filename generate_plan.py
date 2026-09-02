@@ -46,7 +46,7 @@ BASIS_DEFAULT = 25.0   # last manual anchor: her LIVE ArmRiley vs Dec, 2026-07-3
 # (feeds ~4044, her FOREX.com XAUUSD 4074). A "live" fut−spot from lagging inputs read 46 while her
 # live-vs-live ArmRiley read 25 — HER SCREEN IS GROUND TRUTH. While set, this value is used verbatim
 # (basis_live=false). **SET BACK TO None once feeds re-converge with her broker** (check: gold-api−4 ≈ her price).
-BASIS_OVERRIDE = 15.0   # her teacher sheet 2026-08-31 07:52: GCV26 open 4448.0 - spot 4433.0 = 15 (17.5 on 08-27, 20 on 08-24, 25 since 07-31)
+BASIS_OVERRIDE = 12.5   # her teacher sheet 2026-09-02 07:58: GCV26 open 4344.1 - spot 4331.6 = 12.5 (15 on 08-31, 17.5 on 08-27, 20 on 08-24)
 # Calibration to the user's broker: free XAU spot feeds sit a few $ off any specific broker.
 # Subtract this so spot_cfd ≈ her Pepperstone XAUUSD (gold-api ran ~$4 above it). Tune if it drifts.
 SPOT_ADJUST = 4.0
