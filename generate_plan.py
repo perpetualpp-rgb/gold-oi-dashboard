@@ -1177,6 +1177,8 @@ def main():
         # LAYER 1 (her fix 2026-09-01): never build a plan on stale price data — wait briefly for a
         # fresh pageth push first (6-min budget fits the task's PT10M ExecutionTimeLimit).
         age = _pageth_age_min()
+        if os.environ.get("GOLD_MANUAL_DIR", "").strip():
+            age = None                               # user-supplied CME data (her screens) = fresh by definition
         if age is not None and age > 40 and "--no-wait" not in sys.argv:
             print(f"pageth data age {age:.0f} min — waiting up to 6 min for a fresh push")
             deadline = time.time() + 6 * 60
