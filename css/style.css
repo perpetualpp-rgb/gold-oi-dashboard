@@ -500,6 +500,10 @@ footer {
 .sig-tag.ts  { color: #fff; background: var(--call); }
 .sig-tag.cfd { color: var(--fg2); background: var(--bg2); border: 1px solid var(--line); }
 .entry-note { font-family: var(--mono); font-size: 10px; color: var(--fg2); margin-top: 3px; line-height: 1.45; }
+.entry-addon { font-family: var(--mono); font-size: 11px; color: var(--fg1); margin-top: 4px; padding-left: 4px; border-left: 2px solid var(--line2); }
+.entry-addon .c-mut { color: var(--fg2); }
+.plan-b { margin: 8px 0 4px; padding: 8px 10px; border: 1px dashed var(--line2); border-radius: 8px; background: var(--bg1); }
+.plan-b-row { font-family: var(--mono); font-size: 10.5px; color: var(--fg1); line-height: 1.5; }
 
 /* Topstep position-size calculator */
 .plan-unit { color: var(--call); }

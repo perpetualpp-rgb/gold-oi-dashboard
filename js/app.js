@@ -325,9 +325,13 @@ function renderPlan(p) {
           `<div class="entry-body"><div class="entry-title">${esc(en.title || '')} <span class="c-rr">${esc(en.rr || '')}</span></div>` +
           sigLine('Topstep·fut', 'ts', futOf(en.entry), futOf(en.sl), tp.map(futOf)) +
           sigLine('CFD·MT5', 'cfd', en.entry, en.sl, tp) +
+          (en.add_on ? `<div class="entry-addon">↳ จุดเติม ไม้ 2 (${esc(en.add_on.label || '')}): เข้า <b>${fmt.px(en.add_on.entry)}</b> · SL <b class="c-sl">${fmt.px(en.add_on.sl)}</b> <span class="c-mut">(fut ${fmt.px(futOf(en.add_on.entry))})</span></div>` : '') +
           (en.note ? `<div class="entry-note">${esc(en.note)}</div>` : '') +
           `</div></div>`;
       }).join('')}</div>`
+    : '';
+  const planB = (p.plan_b && p.plan_b.length)
+    ? `<div class="plan-b"><div class="plan-eh">🅱 แผนสำรอง · รอเงื่อนไข (ไม่ใช่ออเดอร์)</div>${p.plan_b.map((b) => `<div class="plan-b-row">• ${esc(b)}</div>`).join('')}</div>`
     : '';
 
   // Topstep position-size calculator (gold futures: GC = $100/point, MGC = $10/point)
@@ -371,7 +375,7 @@ function renderPlan(p) {
     (p.headline ? `<div class="plan-headline">${esc(p.headline)}</div>` : '') +
     lvls(p.resistance, 'res', 'แนวต้าน') +
     lvls(p.support, 'sup', 'แนวรับ') +
-    entries +
+    entries + planB +
     calc +
     oicHtml +
     (p.scenarios && p.scenarios.length ? `<ul class="plan-scen">${p.scenarios.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>` : '') +

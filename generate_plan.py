@@ -672,6 +672,27 @@ def build_plan(s):
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
     if g_up and g_dn:
         bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
+    # ── PLAN DISCIPLINE (her rule 2026-09-08 "ทำไมออเดอร์เยอะ วางแผนดีๆ"): ONE primary order per side.
+    # Priority per side: ⭐ confluence ไม้ 1 (its ไม้ 2 folds in as the add-on line) > wall/range setup.
+    # Every displaced setup becomes แผนสำรอง (Plan B) — conditions to watch, NOT orders.
+    primary, plan_b = {}, []
+    for e in entries:
+        sd_ = e["side"]
+        is_l2 = "ไม้ 2" in e["title"]
+        if sd_ not in primary:
+            if not is_l2:
+                primary[sd_] = e
+            continue
+        p0 = primary[sd_]
+        if is_l2 and "ไม้ 1" in p0["title"] and not p0.get("add_on"):
+            p0["add_on"] = {"entry": e["entry"], "sl": e["sl"],
+                            "label": e["title"].split("·", 1)[-1].strip()}
+            continue
+        kind = "ตามเทรนด์ เมื่อปิด H1 ยืนยัน" if ("หลุด" in e["title"] or "ทะลุ" in e["title"])             else "ไม้เล็ก ถ้าราคาไม่ถึงโซนหลัก"
+        tps = "/".join(f"{t:g}" for t in e["tp"])
+        plan_b.append(f"{'SHORT' if sd_ == 'short' else 'LONG'} {e['title']} — เข้า {e['entry']:g} · SL {e['sl']:g} · TP {tps} ({kind})")
+    entries = sorted(primary.values(), key=lambda e: (0 if e["side"] == bias else 1, abs(e["entry"] - spot)))
+
     if s.get("reanchored"):
         ra = s["reanchored"]
         bits.append(f"⚠ ข้อมูล pageth อายุ {ra['age_min']:.0f} นาทีตอนสร้างแผน — ปรับราคาเป็น CME สด {ra['to']:g} (จาก {ra['from']:g}) แล้วคำนวณต้าน/รับ-จุดเข้าจากตำแหน่งจริง (กำแพง OI = ชุดล่าสุดที่มี)")
@@ -727,6 +748,7 @@ def build_plan(s):
         "support": sup,
         "scenarios": scen,
         "entries": entries,
+        "plan_b": plan_b,
         "grid": grid,
         "sd_ladder": sdl,
         "confluence": confluence,
@@ -1054,6 +1076,12 @@ def notify_telegram(plan, chart_path=None):
         tps = "/".join(fmt1(t) for t in en["tp"])
         lines.append(f"• {side} {en['title']}")
         lines.append(f"   เข้า {fmt1(en['entry'])} · SL {fmt1(en['sl'])} · TP {tps} · {en['rr']}")
+        if en.get("add_on"):
+            a = en["add_on"]
+            lines.append(f"   ↳ จุดเติม ไม้ 2 ({a['label']}): เข้า {fmt1(a['entry'])} · SL {fmt1(a['sl'])}")
+    if plan.get("plan_b"):
+        lines += ["", "🅱 แผนสำรอง (รอเงื่อนไข — ไม่ใช่ออเดอร์):"]
+        lines += [f"• {b}" for b in plan["plan_b"]]
     lines += [
         "",
         "⚠️ รอไส้เทียน H1/H4 ยืนยันก่อนเข้า · เทียบราคากับโบรกฯ ของคุณ",
