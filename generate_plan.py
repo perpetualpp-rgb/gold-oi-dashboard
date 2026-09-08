@@ -19,6 +19,7 @@ import subprocess
 import urllib.request
 import urllib.parse
 import plan_stats as ps
+from datetime import datetime as _dt
 
 # Live gold spot. Prefer gold-api.com (real XAU/USD spot — closest to broker XAUUSD);
 # fall back to PAXG (Pax Gold ≈ spot, but a few $ off) on Coinbase/Kraken/Binance so it
@@ -414,7 +415,7 @@ def build_plan(s):
     # Same contract as the previous plan → basis may only drift ±BASIS_DRIFT; contract rolled →
     # re-learn from the live reading within BASIS_SANITY. Feed-lag garbage falls back to the
     # previous basis so the CFD levels stay ≈ her broker instead of swinging with feed noise.
-    spot = fetch_spot()
+    spot = None if BASIS_OVERRIDE is not None else fetch_spot()   # no internet spot when her basis is locked
     if spot is not None:
         spot -= SPOT_ADJUST                          # calibrate gold-api XAU → broker XAUUSD
     raw = (fut - spot) if spot is not None else None
@@ -1207,9 +1208,21 @@ def main():
             return
         # LAYER 1 (her fix 2026-09-01): never build a plan on stale price data — wait briefly for a
         # fresh pageth push first (6-min budget fits the task's PT10M ExecutionTimeLimit).
-        age = _pageth_age_min()
-        if os.environ.get("GOLD_MANUAL_DIR", "").strip():
-            age = None                               # user-supplied CME data (her screens) = fresh by definition
+        # HER RULE (2026-09-08): data comes only from her. Scheduled slots (--if-stale) publish ONLY
+        # when she has sent something new since the last plan — never re-post old walls.
+        if ps.manual_dir():
+            if "--if-stale" in sys.argv:
+                try:
+                    last_pub = _dt.fromisoformat(json.load(open(PLAN_PATH, encoding="utf-8"))["updated_at"]).timestamp()
+                except Exception:
+                    last_pub = 0
+                mt = ps.manual_mtime() or 0
+                if mt <= last_pub:
+                    print("no new user data since the last plan — skip (she sends the data herself)")
+                    return
+            age = None                               # user-supplied CME data = fresh by definition
+        else:
+            age = _pageth_age_min()
         if age is not None and age > 40 and "--no-wait" not in sys.argv:
             print(f"pageth data age {age:.0f} min — waiting up to 6 min for a fresh push")
             deadline = time.time() + 6 * 60

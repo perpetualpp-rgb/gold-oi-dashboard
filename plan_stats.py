@@ -51,6 +51,30 @@ def tz_bkk():
         return timezone(timedelta(hours=7), name="ICT")
 
 
+def manual_dir():
+    """Folder holding her transcribed QuikStrike data (OIData.txt / IntradayData.txt).
+    Env GOLD_MANUAL_DIR wins; default = <this script's folder>/data/manual (the EA OI root)."""
+    d = os.environ.get("GOLD_MANUAL_DIR", "").strip()
+    if d:
+        return d
+    here = os.path.dirname(os.path.abspath(__file__))
+    for c in (os.path.join(here, "data", "manual"), os.path.join(os.path.dirname(here), "data", "manual")):
+        if os.path.isdir(c):
+            return c
+    return None
+
+
+def manual_mtime():
+    """Newest mtime of the user-supplied data files (None if absent) — lets scheduled runs skip
+    when she hasn't sent anything new since the last published plan."""
+    d = manual_dir()
+    if not d:
+        return None
+    ts = [os.path.getmtime(os.path.join(d, n)) for n in ("OIData.txt", "IntradayData.txt")
+          if os.path.exists(os.path.join(d, n))]
+    return max(ts) if ts else None
+
+
 def fetch(url):
     """Fetch a data file. MANUAL OVERRIDE: if env GOLD_MANUAL_DIR is set, read <dir>/OIData.txt /
     IntradayData.txt instead (files transcribed from CME QuikStrike by the user when pageth is
@@ -59,11 +83,17 @@ def fetch(url):
     cache (~5 min) is fresh enough for OI/intraday and stops us hammering the rate-limited origin
     (the old `?t=<ts>` forced a cache MISS on every call → 429 → plan failed, e.g. 2026-07-08 13:00)."""
     import time as _t
-    mdir = os.environ.get("GOLD_MANUAL_DIR", "").strip()
-    if mdir:
-        mp = os.path.join(mdir, url.rsplit("/", 1)[-1])
+    # HER RULE (2026-09-08 "หลังจากนี้ไม่ต้องดึงข้อมูลจากเน็ตแล้ว"): pageth is dead; SHE supplies the
+    # data (QuikStrike screenshots → data/manual/*.txt). The manual folder is the ONLY source unless
+    # GOLD_ALLOW_NET=1 is set explicitly (kept for a future data feed).
+    mdir = manual_dir()
+    mp = os.path.join(mdir, url.rsplit("/", 1)[-1]) if mdir else None
+    if mp and os.path.exists(mp):
         with open(mp, encoding="utf-8") as f:
             return f.read()
+    if os.environ.get("GOLD_ALLOW_NET", "").strip() != "1":
+        raise RuntimeError("no user-supplied data in " + str(mdir or "data/manual")
+                           + " and internet fetch is disabled (her rule 2026-09-08; set GOLD_ALLOW_NET=1 to override)")
     last = ""
     for u in (url, MIRROR.get(url)):
         if not u:

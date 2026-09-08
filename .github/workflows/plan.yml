@@ -3,12 +3,12 @@ name: Daily Gold Plan
 # Generates plan.json in the cloud (no PC needed) at 13:00 & 19:00 Thailand time,
 # Mon–Fri. GitHub cron runs in UTC; ICT = UTC+7 (Thailand has no DST).
 on:
-  schedule:
+#  schedule:   (DISABLED 2026-09-08 — cloud has no access to her data)
     # minutes shifted off :00 (GitHub queues are busiest at the top of the hour).
     # Cloud is the BACKUP (fires ~8 min after the local PC task's exact slot).
-    - cron: "8 6 * * 1-5"    # 06:08 UTC = 13:08 ICT
-    - cron: "8 12 * * 1-5"   # 12:08 UTC = 19:08 ICT
-    - cron: "38 14 * * 1-5"  # 14:38 UTC = 21:38 ICT
+#    - cron: "8 6 * * 1-5"    # 06:08 UTC = 13:08 ICT   (DISABLED 2026-09-08: pageth dead, she supplies data locally)
+#    - cron: "8 12 * * 1-5"   # 12:08 UTC = 19:08 ICT
+#    - cron: "38 14 * * 1-5"  # 14:38 UTC = 21:38 ICT
   workflow_dispatch: {}       # allow manual "Run workflow" from the Actions tab
 
 permissions:
