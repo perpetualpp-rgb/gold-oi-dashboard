@@ -539,8 +539,12 @@ def build_plan(s):
         ]
 
     # ── concrete entry setups (entry / SL / TP in CFD + RR), per the H1-rejection method ──
-    # SL buffer behind the wall, wider when volatile (book: high vol => widen SL)
-    buf = max(round(0.6 * sd) if regime == "high" else round(0.4 * sd), 12)
+    # SL buffer behind the wall, wider when volatile (book: high vol => widen SL).
+    # Scaled by the DAY's sigma = the locked SD ladder's 1SD when available: the option sigma of a
+    # multi-day series (Friday weekly, DTE 3.5) is a WEEKLY range and blew SL out to $39 (2026-09-08).
+    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
+    sd_day = float(sdl["sd1"]) if (sdl and sdl.get("sd1")) else sd
+    buf = max(round(0.6 * sd_day) if regime == "high" else round(0.4 * sd_day), 12)
 
     def setup(side, title, e, sl, tps, note):
         risk_pts = abs(sl - e) or 1
@@ -582,7 +586,6 @@ def build_plan(s):
     for tw in (magnet, call_tail, put_tail):
         if tw.get("strike"):
             walls[tw["strike"]] = max(walls.get(tw["strike"], 0), int(tw.get("oi", 0) or 0))
-    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
     grid = grid_levels(fut, sd, basis, walls, sdl)   # $50 grid confined to the day's ±3SD zone
     g_up = next((g for g in grid if g["price"] > fut), None)
     g_dn = next((g for g in reversed(grid) if g["price"] < fut), None)

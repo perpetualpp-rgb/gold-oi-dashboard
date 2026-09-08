@@ -193,10 +193,13 @@ def sigma(d):
 def top_walls(rows, side, ref, above, volmap, volmax, n=3):
     mx = max((r[side] for r in rows), default=0)
     thr = max(mx * 0.20, 1)
-    cand = [r for r in rows if ((r["strike"] > ref) == above) and r[side] >= thr]
-    cand.sort(key=lambda r: r[side], reverse=True)
+    cand = [r for r in rows if ((r["strike"] > ref) == above) and r[side] >= max(thr, 100)]
+    cand.sort(key=lambda r: abs(r["strike"] - ref))          # nearest significant walls first
+    if not cand:                                             # nothing >=100: fall back to biggest
+        cand = sorted([r for r in rows if ((r["strike"] > ref) == above) and r[side] >= thr],
+                      key=lambda r: r[side], reverse=True)
     out = []
-    for r in cand[:n]:
+    for r in sorted(cand[:n], key=lambda r: r[side], reverse=True):
         v = volmap.get(r["strike"], {}).get(side, 0)
         out.append({
             "strike": r["strike"],
