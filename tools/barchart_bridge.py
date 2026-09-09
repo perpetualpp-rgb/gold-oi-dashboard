@@ -1,0 +1,290 @@
+"""
+barchart_bridge.py — local receiver for the "Barchart → GoldOI Bridge" userscript.
+
+pageth (the old OI data feed) died 2026-09-04. Barchart serves the same CME option data through
+its own page API, but only to a real browser (bot-wall: plain Python gets HTTP 403). So the split is:
+  * Tampermonkey userscript in HER Chrome (any barchart.com tab kept open) — every 10 min asks this
+    bridge which series to fetch (GET /wanted), pulls them from Barchart's page API, POSTs them here.
+  * this bridge (runs at logon via task GoldOIBarchartBridge, pythonw) — picks the nearest live weekly
+    series (like pageth did) and writes pageth-format files into data/manual/ that generate_plan.py
+    already reads by default. Scheduled plan slots then publish automatically (their "new data
+    since last plan" guard passes because the files are fresh).
+Also: Telegram warning if the browser stops sending for > STALE_MIN during trading hours.
+
+Run:  pythonw barchart_bridge.py        (listens on 127.0.0.1:8765)
+Test: curl http://127.0.0.1:8765/status
+"""
+
+import os
+import sys
+import json
+import time
+import threading
+import urllib.request
+import urllib.parse
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+try:
+    from zoneinfo import ZoneInfo
+    TZ_NY = ZoneInfo("America/New_York")
+    TZ_BKK = ZoneInfo("Asia/Bangkok")
+except Exception:                                   # pragma: no cover
+    TZ_NY = timezone(timedelta(hours=-4))
+    TZ_BKK = timezone(timedelta(hours=7))
+
+HOST, PORT = "127.0.0.1", 8765
+ROOT = os.path.dirname(os.path.abspath(__file__))
+MANUAL_DIR = os.path.join(ROOT, "data", "manual")
+ARCHIVE_DIR = os.path.join(ROOT, "data", "barchart")
+STATUS_PATH = os.path.join(MANUAL_DIR, "barchart_status.json")
+SD_PATH = os.path.join(ROOT, "gold-oi-dashboard", "sd_ladder.json")
+LOG_PATH = os.path.join(ROOT, "barchart_bridge.log")
+HORIZON_DAYS = 9          # how far ahead to list weekly series for the userscript
+MIN_DTE = 0.15            # drop a series in its last ~3.5 h (pageth also rolled at expiry)
+MIN_OI = 300              # ignore brand-new/empty series
+STALE_MIN = 60            # Telegram warning when the browser stops sending for this long
+
+# Barchart weekly gold option codes (decoded from the site's own dropdowns, 2026-09-09):
+# code = PREFIX + WEEKCHAR + MONTHCODE + YY ; "Week n" = n-th <weekday> of that month.
+WEEKLY = {
+    0: ("IY", lambda w: str(w)),                    # Monday    IY1..IY5
+    1: ("I0", lambda w: chr(ord("A") + w)),         # Tuesday   I0B..I0F
+    2: ("IY", lambda w: str((5 + w) % 10)),         # Wednesday IY6,IY7,IY8,IY9,IY0
+    3: ("I0", lambda w: chr(ord("F") + w)),         # Thursday  I0G..I0K
+    4: ("IG", lambda w: str(w)),                    # Friday    IG1..IG5
+}
+MONTH_CODE = {1: "F", 2: "G", 3: "H", 4: "J", 5: "K", 6: "M", 7: "N", 8: "Q", 9: "U", 10: "V", 11: "X", 12: "Z"}
+GC_ACTIVE = [2, 4, 6, 8, 10, 12]                    # GC contract months (G J M Q V Z)
+
+
+def log(msg):
+    line = f"{datetime.now(TZ_BKK).strftime('%Y-%m-%d %H:%M:%S')} {msg}"
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    try:
+        print(line)
+    except Exception:
+        pass
+
+
+def underlying_for(month, year):
+    """Weekly options on a month settle into the NEXT active GC contract (Sep->GCV, Oct->GCZ, Dec->GCG+1)."""
+    for m in GC_ACTIVE:
+        if m > month:
+            return f"GC{MONTH_CODE[m]}{str(year)[2:]}"
+    return f"GCG{str(year + 1)[2:]}"
+
+
+def expiry_dt(d):
+    """Weekly gold options expire ~12:30 New York time on the expiry date (matches her DTE convention)."""
+    return datetime(d.year, d.month, d.day, 12, 30, tzinfo=TZ_NY)
+
+
+def upcoming_series(now=None):
+    """All weekly series expiring within HORIZON_DAYS, nearest first: [{code, underlying, expiry, dte}]."""
+    now = now or datetime.now(timezone.utc)
+    out = []
+    d = now.astimezone(TZ_NY).date()
+    for i in range(HORIZON_DAYS + 1):
+        day = d + timedelta(days=i)
+        wd = day.weekday()
+        if wd not in WEEKLY:
+            continue
+        exp = expiry_dt(day)
+        dte = (exp - now).total_seconds() / 86400.0
+        if dte <= 0:
+            continue
+        prefix, wc = WEEKLY[wd]
+        week_n = (day.day - 1) // 7 + 1
+        code = f"{prefix}{wc(week_n)}{MONTH_CODE[day.month]}{str(day.year)[2:]}"
+        out.append({"code": code, "underlying": underlying_for(day.month, day.year),
+                    "expiry": exp.isoformat(), "dte": round(dte, 3)})
+    return out
+
+
+def _sd_vol_today():
+    """ATM Vol for the header. Barchart's per-strike IV is computed from stale last trades (read 33-55%
+    when QuikStrike said 22.6 on 2026-09-09) — it must NEVER drive regime/SD. Order: her teacher-sheet
+    Vol locked today (sd_ladder.json) -> the most recent locked Vol (previous day, flagged) -> None."""
+    try:
+        d = json.load(open(SD_PATH, encoding="utf-8"))
+        if d.get("locked") and d.get("vol"):
+            today = datetime.now(TZ_BKK).strftime("%Y-%m-%d")
+            return float(d["vol"]), ("sd_lock" if d.get("day") == today else f"sd_lock_prev({d.get('day')})")
+    except Exception:
+        pass
+    return None, None
+
+
+def _leg(rows, k, side):
+    v = rows[k].get(side) or [0, 0, 0]
+    return [float(v[0] or 0), float(v[1] or 0), float(v[2] or 0)]
+
+
+def build_files(payload):
+    """Pick the nearest live series with real OI and write pageth-format OIData/IntradayData files."""
+    series = payload.get("series") or {}
+    futures = payload.get("futures") or {}
+    now = datetime.now(timezone.utc)
+    chosen = None
+    for s in upcoming_series(now):
+        rows = (series.get(s["code"]) or {}).get("rows") or {}
+        tot_oi = sum(_leg(rows, k, "c")[1] + _leg(rows, k, "p")[1] for k in rows)
+        if s["dte"] >= MIN_DTE and rows and tot_oi >= MIN_OI:
+            chosen = dict(s, rows=rows, tot_oi=tot_oi)
+            break
+    if not chosen:
+        return None, "no live series with OI in payload"
+    fq = futures.get(chosen["underlying"]) or {}
+    fut = float(fq.get("last") or 0)
+    chg = float(fq.get("chg") or 0)
+    if not fut:
+        return None, f"no futures quote for {chosen['underlying']}"
+    rows = chosen["rows"]
+    strikes = sorted(rows, key=lambda k: float(k))
+    put_oi = int(sum(_leg(rows, k, "p")[1] for k in strikes))
+    call_oi = int(sum(_leg(rows, k, "c")[1] for k in strikes))
+    put_vol = int(sum(_leg(rows, k, "p")[0] for k in strikes))
+    call_vol = int(sum(_leg(rows, k, "c")[0] for k in strikes))
+    vol, vol_src = _sd_vol_today()
+    if vol is None:                                   # fallback: median Barchart IV around the money (noisy!)
+        near = sorted(strikes, key=lambda k: abs(float(k) - fut))[:6]
+        ivs = sorted(x for k in near for x in (_leg(rows, k, "c")[2], _leg(rows, k, "p")[2]) if x)
+        vol = round(ivs[len(ivs) // 2], 2) if ivs else 0.0
+        vol_src = "barchart_iv_median"
+    dte = chosen["dte"]
+    hdr = f"Gold (OG|GC) {chosen['code']} ({dte:.2f} DTE) vs {fut:g} ({chg:+g})"
+    os.makedirs(MANUAL_DIR, exist_ok=True)
+    os.makedirs(ARCHIVE_DIR, exist_ok=True)
+
+    def write(name, kind, idx, tp, tc):
+        lines = [f"{hdr} - {kind}",
+                 f"Put: {tp:,}  Call: {tc:,}  Vol: {vol:.2f}  Vol Chg: 0.00  Future Chg: {chg:+g}",
+                 "Strike,Call,Put,Vol Settle"]
+        for k in strikes:
+            c, p = _leg(rows, k, "c"), _leg(rows, k, "p")
+            iv = c[2] or p[2] or 0.0
+            lines.append(f"{float(k):g},{int(c[idx])},{int(p[idx])},{round(iv / 100.0, 4)}")
+        text = "\n".join(lines) + "\n"
+        with open(os.path.join(MANUAL_DIR, name), "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        stamp = datetime.now(TZ_BKK).strftime("%Y-%m-%d_%H%M")
+        with open(os.path.join(ARCHIVE_DIR, f"{stamp}_{name}"), "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+
+    write("OIData.txt", "Open Interest", 1, put_oi, call_oi)
+    write("IntradayData.txt", "Intraday Volume", 0, put_vol, call_vol)
+    status = {"at": datetime.now(TZ_BKK).isoformat(timespec="seconds"), "series": chosen["code"],
+              "underlying": chosen["underlying"], "expiry": chosen["expiry"], "dte": dte, "future": fut,
+              "chg": chg, "put_oi": put_oi, "call_oi": call_oi, "strikes": len(strikes),
+              "vol": vol, "vol_source": vol_src}
+    json.dump(status, open(STATUS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    return status, "ok"
+
+
+def tg_send(text):
+    """Telegram warning (same env vars generate_plan uses). Silently skipped when not configured."""
+    tok = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not tok or not chat:
+        return False
+    try:
+        data = urllib.parse.urlencode({"chat_id": chat, "text": text}).encode()
+        req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage", data=data)
+        with urllib.request.urlopen(req, timeout=15):
+            return True
+    except Exception as e:
+        log(f"telegram failed: {e}")
+        return False
+
+
+STATE = {"last_ingest": None, "last_status": None, "warned": False, "errors": 0}
+
+
+def stale_watch():
+    while True:
+        time.sleep(300)
+        try:
+            now = datetime.now(TZ_BKK)
+            trading = now.weekday() < 5 and (now.hour >= 6 or now.hour < 2)
+            last = STATE["last_ingest"]
+            gap = (time.time() - last) / 60 if last else None
+            if trading and gap is not None and gap > STALE_MIN and not STATE["warned"]:
+                tg_send(f"⚠️ Barchart bridge เงียบ {gap:.0f} นาที — เปิดแท็บ barchart.com ค้างไว้อยู่ไหมคะ? "
+                        f"(แผนรอบถัดไปจะข้ามถ้าไม่มีข้อมูลใหม่)")
+                STATE["warned"] = True
+                log(f"stale warning sent (gap {gap:.0f} min)")
+        except Exception as e:
+            log(f"stale_watch error: {e}")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")   # Chrome PNA preflight
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):                        # keep the console quiet
+        pass
+
+    def do_OPTIONS(self):
+        self._send(200, {"ok": True})
+
+    def do_GET(self):
+        if self.path.startswith("/wanted"):
+            ser = upcoming_series()
+            self._send(200, {"symbols": [s["code"] for s in ser][:6],
+                             "futures": sorted({s["underlying"] for s in ser}),
+                             "series": ser[:6]})
+        elif self.path.startswith("/status"):
+            self._send(200, {"last_ingest": STATE["last_ingest"], "status": STATE["last_status"],
+                             "errors": STATE["errors"], "wanted": [s["code"] for s in upcoming_series()][:6]})
+        else:
+            self._send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if not self.path.startswith("/ingest"):
+            return self._send(404, {"error": "not found"})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            payload = json.loads(self.rfile.read(n).decode("utf-8"))
+            status, msg = build_files(payload)
+            STATE["last_ingest"] = time.time()
+            STATE["warned"] = False
+            if status:
+                STATE["last_status"] = status
+                log(f"ingest ok: {status['series']} fut {status['future']} DTE {status['dte']} "
+                    f"OI P/C {status['put_oi']}/{status['call_oi']} strikes {status['strikes']} "
+                    f"vol {status['vol']} ({status['vol_source']})")
+            else:
+                log(f"ingest rejected: {msg}")
+            self._send(200, {"ok": bool(status), "msg": msg, "status": status})
+        except Exception as e:
+            STATE["errors"] += 1
+            log(f"ingest error: {e}")
+            self._send(500, {"ok": False, "msg": str(e)})
+
+
+def main():
+    threading.Thread(target=stale_watch, daemon=True).start()
+    srv = ThreadingHTTPServer((HOST, PORT), Handler)
+    log(f"bridge listening on http://{HOST}:{PORT}  wanted={[s['code'] for s in upcoming_series()][:6]}")
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    if "--wanted" in sys.argv:
+        print(json.dumps(upcoming_series(), indent=1))
+    else:
+        main()
