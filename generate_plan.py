@@ -562,14 +562,14 @@ def build_plan(s):
         entries = [
             setup("short", "Short รีเจกต์แนวต้าน", res1, res1 + buf, [sup1, sup2],
                   f"รอเด้งขึ้น {cfd(res1)} (fut {res1}) + ไส้เทียน H1 reject แล้วค่อย Short"),
-            setup("short", "Short ตามการหลุดแนว", sup1, sup1 + buf, [sup_last],
+            setup("short", "Short ตามการหลุดแนว", sup1, sup1 + buf, [max(sup_last, round(sup1 - 2 * sd_day))],
                   f"ถ้าปิด H1 ใต้ {cfd(sup1)} (fut {sup1}) + วอลุ่ม/OI ฝั่งลงเพิ่ม (ของจริง ห้ามสวน)"),
         ]
     elif bias == "long":
         entries = [
             setup("long", "Long รีเจกต์แนวรับ", sup1, sup1 - buf, [res1, res2],
                   f"รอย่อลง {cfd(sup1)} (fut {sup1}) + ไส้เทียน H1 reject (ทิ้งไส้ล่าง) แล้วค่อย Long"),
-            setup("long", "Long ตามการทะลุ", res1, res1 - buf, [res_last],
+            setup("long", "Long ตามการทะลุ", res1, res1 - buf, [min(res_last, round(res1 + 2 * sd_day))],
                   f"ถ้าปิด H1 เหนือ {cfd(res1)} (fut {res1}) + วอลุ่ม/OI ฝั่งขึ้นเพิ่ม (Gamma squeeze)"),
         ]
     else:
