@@ -202,7 +202,7 @@ def tg_send(text):
         return False
 
 
-STATE = {"last_ingest": None, "last_status": None, "warned": False, "errors": 0}
+STATE = {"last_ingest": None, "last_status": None, "warned": False, "errors": 0, "started": time.time()}
 
 
 def stale_watch():
@@ -211,8 +211,8 @@ def stale_watch():
         try:
             now = datetime.now(TZ_BKK)
             trading = now.weekday() < 5 and (now.hour >= 6 or now.hour < 2)
-            last = STATE["last_ingest"]
-            gap = (time.time() - last) / 60 if last else None
+            last = STATE["last_ingest"] or STATE["started"]      # never-ingested since start counts too
+            gap = (time.time() - last) / 60
             if trading and gap is not None and gap > STALE_MIN and not STATE["warned"]:
                 tg_send(f"⚠️ Barchart bridge เงียบ {gap:.0f} นาที — เปิดแท็บ barchart.com ค้างไว้อยู่ไหมคะ? "
                         f"(แผนรอบถัดไปจะข้ามถ้าไม่มีข้อมูลใหม่)")
