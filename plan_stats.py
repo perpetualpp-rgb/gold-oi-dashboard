@@ -314,6 +314,8 @@ def compute_stats():
         "pcr_intraday": round(intr["totalPut"] / intr["totalCall"], 2) if intr["totalCall"] else None,
         "oi_totals": {"call": int(oi["totalCall"]), "put": int(oi["totalPut"])},
         "intraday_totals": {"call": int(intr["totalCall"]), "put": int(intr["totalPut"])},
+        "all_call_walls": [{"strike": r["strike"], "oi": r["call"]} for r in rows if r["strike"] > fut and r["call"] >= 100],
+        "all_put_walls": [{"strike": r["strike"], "oi": r["put"]} for r in rows if r["strike"] < fut and r["put"] >= 100],
         "resistance_call_walls": top_walls(rows, "call", fut, True, volmap, callvolmax),
         "support_put_walls": top_walls(rows, "put", fut, False, volmap, putvolmax),
         "call_tail": tail(rows, "call", fut, True),

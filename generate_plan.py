@@ -606,6 +606,10 @@ def build_plan(s):
             return sig_name[k], round(d, 1)
         keys = [("res", w["strike"], w["oi"], "กำแพง Call") for w in s["resistance_call_walls"]]
         keys += [("sup", w["strike"], w["oi"], "กำแพง Put") for w in s["support_put_walls"]]
+        # EVERY significant wall (>=100) is a confluence candidate, not just the nearest-3 lists —
+        # the 2nd-biggest call wall of the day (4525, OI 357) sat inside the SELL zone and was missed.
+        keys += [("res", w["strike"], w["oi"], "กำแพง Call") for w in s.get("all_call_walls", [])]
+        keys += [("sup", w["strike"], w["oi"], "กำแพง Put") for w in s.get("all_put_walls", [])]
         if call_tail.get("strike"):
             keys.append(("res", call_tail["strike"], call_tail.get("oi", 0), "ท้าย OI Call"))
         if put_tail.get("strike"):
