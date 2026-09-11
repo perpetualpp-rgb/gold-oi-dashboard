@@ -59,6 +59,62 @@ function sdFut() {
   return o;
 }
 
+// split sorted IV points where consecutive strikes are unusually far apart (no silent bridging)
+function splitGaps(pts) {
+  if (pts.length < 2) return [pts];
+  const gaps = [];
+  for (let i = 1; i < pts.length; i++) gaps.push(pts[i].strike - pts[i - 1].strike);
+  const med = gaps.slice().sort((a, b) => a - b)[Math.floor(gaps.length / 2)] || 1;
+  const segs = [[pts[0]]];
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].strike - pts[i - 1].strike > 3 * med && pts[i].strike - pts[i - 1].strike > 50) segs.push([pts[i]]);
+    else segs[segs.length - 1].push(pts[i]);
+  }
+  return segs;
+}
+
+// PCHIP (Fritsch–Carlson shape-preserving cubic Hermite) through (strike, iv) points → SVG path.
+// Both axes are linear, so cubic Hermite in data space maps exactly to cubic Béziers in pixels.
+function pchipPath(pts, xf, yf) {
+  const n = pts.length;
+  const X = pts.map((p) => p.strike), Y = pts.map((p) => p.iv);
+  const h = [], d = [];
+  for (let i = 0; i < n - 1; i++) { h.push(X[i + 1] - X[i]); d.push((Y[i + 1] - Y[i]) / (X[i + 1] - X[i])); }
+  const m = new Array(n).fill(0);
+  if (n === 2) { m[0] = m[1] = d[0]; }
+  else {
+    for (let i = 1; i < n - 1; i++) {
+      if (d[i - 1] * d[i] <= 0) m[i] = 0;
+      else { const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1]; m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]); }
+    }
+    const end = (h0, h1, d0, d1) => {
+      let s = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+      if (Math.sign(s) !== Math.sign(d0)) s = 0;
+      else if (Math.sign(d0) !== Math.sign(d1) && Math.abs(s) > Math.abs(3 * d0)) s = 3 * d0;
+      return s;
+    };
+    m[0] = end(h[0], h[1], d[0], d[1]);
+    m[n - 1] = end(h[n - 2], h[n - 3], d[n - 2], d[n - 3]);
+  }
+  let path = `M${xf(X[0]).toFixed(1)},${yf(Y[0]).toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const hh = h[i];
+    const c1x = X[i] + hh / 3, c1y = Y[i] + m[i] * hh / 3;
+    const c2x = X[i + 1] - hh / 3, c2y = Y[i + 1] - m[i + 1] * hh / 3;
+    path += ` C${xf(c1x).toFixed(1)},${yf(c1y).toFixed(1)} ${xf(c2x).toFixed(1)},${yf(c2y).toFixed(1)} ${xf(X[i + 1]).toFixed(1)},${yf(Y[i + 1]).toFixed(1)}`;
+  }
+  return path;
+}
+
+function ivLabel() {
+  const s = state.status;
+  if (!s || s.iv_source !== 'quikstrike') return 'IV unavailable — ไม่มี IV ราย strike ที่ตรวจสอบได้ (ไม่สร้างเส้นแทน)';
+  let when = '';
+  try { when = new Date(s.iv_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
+  const kind = s.iv_kind === 'settlement' ? 'Settlement IV Smile' : 'IV Smile (QuikStrike Pricing Sheet)';
+  return `${kind} · ${esc(s.iv_code || '')} · ค่า ณ ${when} · เส้นระหว่างจุด = Interpolated (PCHIP)`;
+}
+
 function volSourceLabel(src) {
   if (!src) return '';
   if (src === 'sd_lock') return 'ชีตครูวันนี้';
@@ -121,19 +177,23 @@ function chartPanel(d, kind) {
     if (r.put > 0) svg += `<rect class="bar-put" x="${(cx - bw - 0.6).toFixed(1)}" y="${y(r.put).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(r.put)).toFixed(1)}"/>`;
     if (r.call > 0) svg += `<rect class="bar-call" x="${(cx + 0.6).toFixed(1)}" y="${y(r.call).toFixed(1)}" width="${bw.toFixed(1)}" height="${(y(0) - y(r.call)).toFixed(1)}"/>`;
   }
-  // IV smile (per-strike IV from the data — plotted as observed points, no curve fitting)
-  // Barchart per-strike IV is derived from last trades — keep only plausible values on traded strikes
-  const ivp = vis.filter((r) => r.iv >= 0.05 && r.iv <= 1.5 && (r.call + r.put) > 0).sort((a, b) => a.strike - b.strike);
+  // IV smile — ONLY from a verified per-strike source (QuikStrike Pricing Sheet via the bridge, same
+  // series/expiry as the bars). Source points are the data; the pink dashed curve between them is
+  // PCHIP-interpolated (shape-preserving: no overshoot, no forced U, no extrapolation beyond the
+  // first/last strike; gaps wider than 3x the median strike gap are left open). Barchart's
+  // last-trade IVs never qualify → "IV unavailable" instead of a substitute curve.
+  const ivOk = !!(state.status && state.status.iv_source === 'quikstrike');
+  const ivp = ivOk ? vis.filter((r) => r.iv >= 0.02 && r.iv <= 2).sort((a, b) => a.strike - b.strike) : [];
   if (ivp.length >= 3) {
     const ivs = ivp.map((r) => r.iv);
     let lo = Math.min(...ivs), hi = Math.max(...ivs);
     if (hi - lo < 0.02) { lo -= 0.01; hi += 0.01; }
-    const pad = (hi - lo) * 0.15; lo -= pad; hi += pad;
+    const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
     const yiv = (v) => MT + ph - (v - lo) / (hi - lo) * ph;
-    // observed points only (no curve fitting — the values are noisy last-trade IVs); a faint
-    // connector helps the eye but is deliberately thin
-    svg += `<polyline class="iv-line" style="opacity:.35" points="${ivp.map((r) => `${x(r.strike).toFixed(1)},${yiv(r.iv).toFixed(1)}`).join(' ')}"/>`;
-    svg += ivp.map((r) => `<circle class="iv-dot" cx="${x(r.strike).toFixed(1)}" cy="${yiv(r.iv).toFixed(1)}" r="2.2"/>`).join('');
+    for (const seg of splitGaps(ivp)) {
+      if (seg.length >= 2) svg += `<path class="iv-line" d="${pchipPath(seg, (s) => x(s), (v) => yiv(v))}"/>`;
+    }
+    if (state.showIvPts) svg += ivp.map((r) => `<circle class="iv-dot" cx="${x(r.strike).toFixed(1)}" cy="${yiv(r.iv).toFixed(1)}" r="2.4"/>`).join('');
     for (let i = 0; i <= 4; i++) {
       const v = lo + (hi - lo) * i / 4;
       svg += `<text class="tick r" x="${ML + pw + 6}" y="${(yiv(v) + 4).toFixed(1)}">${(v * 100).toFixed(1)}</text>`;
@@ -149,8 +209,9 @@ function chartPanel(d, kind) {
   chartGeom[kind] = { xmin, xmax, ML, pw, W, rows: vis, F };
   const vol = (state.status && state.status.vol) || d.iv;
   const volSrc = volSourceLabel(state.status && state.status.vol_source);
+  const ivAtm = ivOk && state.status.iv_atm != null ? ` &nbsp; <span class="st-vol">IV ATM: ${Number(state.status.iv_atm).toFixed(2)}</span> <span style="color:var(--fg2)">(QuikStrike)</span>` : '';
   const stats = `<span class="st-put">Put: ${fmt.int(d.totalPut)}</span> &nbsp; <span class="st-call">Call: ${fmt.int(d.totalCall)}</span> &nbsp; ` +
-    `<span class="st-vol">Vol: ${vol ? Number(vol).toFixed(2) : '—'}</span>${volSrc ? ` <span style="color:var(--fg2)">(${esc(volSrc)})</span>` : ''}`;
+    `<span class="st-vol">Vol: ${vol ? Number(vol).toFixed(2) : '—'}</span>${volSrc ? ` <span style="color:var(--fg2)">(${esc(volSrc)})</span>` : ''}${ivAtm}`;
   return `<div class="chart-panel"><div class="chart-head"><span class="chart-title">${title}</span><span class="chart-stats">${stats}</span></div>` +
     `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" data-kind="${kind}" preserveAspectRatio="xMidYMid meet">${svg}</svg></div>`;
 }
@@ -164,6 +225,10 @@ function renderChart() {
   }).join('');
   el.innerHTML = html;
   el.querySelectorAll('svg.chart-svg').forEach(attachHover);
+  const lg = $('lg-iv');
+  if (lg) lg.textContent = (state.status && state.status.iv_source === 'quikstrike')
+    ? `┄ ${state.status.iv_kind === 'settlement' ? 'Settlement IV' : 'IV Smile (QuikStrike)'}`
+    : '┄ IV unavailable';
   renderChartFoot();
   const d = state.data.oi || state.data.intraday;
   if (d) {
@@ -219,7 +284,8 @@ function renderChartFoot() {
     let exp = '';
     try { exp = new Date(s.expiry).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
     parts.push(`series ${esc(s.series)} (${esc(s.underlying)}) หมดอายุ ${exp} · DTE ${Number(s.dte).toFixed(2)} · ${s.strikes} strikes`);
-    parts.push(`Vol ${Number(s.vol).toFixed(2)} จาก ${esc(volSourceLabel(s.vol_source))} · IV รายสไตรค์จาก Barchart (โดยประมาณ — ไม่ใช้เป็น Vol)`);
+    parts.push(`Vol ${Number(s.vol).toFixed(2)} จาก ${esc(volSourceLabel(s.vol_source))}`);
+    parts.push(`<span style="color:var(--iv-line)">${ivLabel()}</span>`);
   } else {
     parts.push('ไม่มี status.json — ข้อมูลอาจเป็นชุดสำรอง');
   }
@@ -465,6 +531,9 @@ function init() {
   ['oi', 'intraday', 'both'].forEach((k) => $('seg-' + k).classList.toggle('active', k === state.view));
   $('px-fut').classList.toggle('active', state.priceMode === 'fut');
   $('px-cfd').classList.toggle('active', state.priceMode === 'cfd');
+  state.showIvPts = (localStorage.getItem('ivpts') || 'off') === 'on';
+  const ip = $('chk-ivpts');
+  if (ip) { ip.checked = state.showIvPts; ip.addEventListener('change', (e) => { state.showIvPts = e.target.checked; localStorage.setItem('ivpts', e.target.checked ? 'on' : 'off'); renderChart(); }); }
   $('chk-auto').addEventListener('change', (e) => setAuto(e.target.checked));
   const autoOn = (localStorage.getItem('auto') || 'on') === 'on';
   $('chk-auto').checked = autoOn;

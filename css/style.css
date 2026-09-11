@@ -137,8 +137,8 @@ header {
 .chart-svg .tick.r { fill: var(--iv-line); }
 .chart-svg .bar-put { fill: var(--put-bar); }
 .chart-svg .bar-call { fill: var(--call-bar); }
-.chart-svg .iv-line { fill: none; stroke: var(--iv-line); stroke-width: 1.6; stroke-dasharray: 6 4; opacity: 0.85; }
-.chart-svg .iv-dot { fill: var(--iv-line); opacity: 0.7; }
+.chart-svg .iv-line { fill: none; stroke: #e06c9f; stroke-width: 1.8; stroke-dasharray: 7 4; opacity: 0.9; }
+.chart-svg .iv-dot { fill: #e06c9f; stroke: var(--bg0); stroke-width: 0.8; }
 .chart-svg .fut-line { stroke: var(--fg0); stroke-width: 1.2; stroke-dasharray: 5 4; }
 .chart-svg .fut-lbl { font-family: var(--mono); font-size: 11px; fill: var(--fg0); font-weight: 600; }
 .chart-svg .band-buy { fill: var(--z-buy); }

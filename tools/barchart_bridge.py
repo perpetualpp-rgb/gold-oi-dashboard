@@ -111,6 +111,60 @@ def upcoming_series(now=None):
     return out
 
 
+QS_PATH = os.path.join(MANUAL_DIR, "quikstrike_iv.json")
+CME_WD = {"M": 0, "T": 1, "W": 2, "R": 3, "H": 3}     # G{w}M/T/W/R = Mon/Tue/Wed/Thu weeklies; OG{w} = Friday
+MONTH_FROM_CODE = {v: k for k, v in MONTH_CODE.items()}
+
+
+def cme_code_expiry(code):
+    """'OG2U6' -> 2026-09-11 (2nd Friday of Sep), 'G2TU6' -> 2nd Tuesday, 'G3WQ6' -> 3rd Wednesday. None if unknown."""
+    import re
+    code = (code or "").strip().upper()
+    m = re.match(r"^OG(\d)([FGHJKMNQUVXZ])(\d)$", code)
+    if m:
+        w, mc, y, wd = int(m.group(1)), m.group(2), int(m.group(3)), 4
+    else:
+        m = re.match(r"^G(\d)([MTWRH])([FGHJKMNQUVXZ])(\d)$", code)
+        if not m:
+            return None
+        w, mc, y, wd = int(m.group(1)), m.group(3), int(m.group(4)), CME_WD[m.group(2)]
+    now_y = datetime.now(TZ_NY).year
+    year = (now_y // 10) * 10 + y
+    if year < now_y - 1:
+        year += 10
+    month = MONTH_FROM_CODE.get(mc)
+    if not month:
+        return None
+    d = datetime(year, month, 1).date()
+    while d.weekday() != wd:
+        d += timedelta(days=1)
+    return d + timedelta(days=7 * (w - 1))
+
+
+def load_qs():
+    try:
+        return json.load(open(QS_PATH, encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def save_qs(payload):
+    """POST /iv from the QuikStrike pricing sheet: {code, rows:[[strike, volPct],...], atm: volPct|null}."""
+    if payload.get("debug"):                          # userscript could not parse the page: keep evidence
+        log(f"quikstrike debug: {json.dumps(payload.get('debug'), ensure_ascii=False)[:900]}")
+    rows = [(float(r[0]), float(r[1])) for r in (payload.get("rows") or []) if r and r[1] not in (None, "", 0)]
+    if len(rows) < 5:
+        return None, "too few IV rows"
+    exp = cme_code_expiry(payload.get("code"))
+    d = {"code": payload.get("code"), "expiry_date": exp.isoformat() if exp else None,
+         "atm": payload.get("atm"), "rows": rows, "kind": payload.get("kind") or "pricing_sheet",
+         "page": payload.get("page"), "header": (payload.get("header") or "")[:300],
+         "at": datetime.now(TZ_BKK).isoformat(timespec="seconds")}
+    os.makedirs(MANUAL_DIR, exist_ok=True)
+    json.dump(d, open(QS_PATH, "w", encoding="utf-8"), ensure_ascii=False)
+    return d, "ok"
+
+
 def _sd_vol_today():
     """ATM Vol for the header. Barchart's per-strike IV is computed from stale last trades (read 33-55%
     when QuikStrike said 22.6 on 2026-09-09) — it must NEVER drive regime/SD. Order: her teacher-sheet
@@ -156,12 +210,30 @@ def build_files(payload):
     put_vol = int(sum(_leg(rows, k, "p")[0] for k in strikes))
     call_vol = int(sum(_leg(rows, k, "c")[0] for k in strikes))
     vol, vol_src = _sd_vol_today()
+    if (vol is None or str(vol_src).startswith("sd_lock_prev")) and qs and qs.get("atm") and iv_source == "quikstrike":
+        try:
+            if datetime.fromisoformat(qs["at"]).date() == datetime.now(TZ_BKK).date():
+                vol, vol_src = round(float(qs["atm"]), 2), "quikstrike_atm"
+        except Exception:
+            pass
     if vol is None:                                   # fallback: median Barchart IV around the money (noisy!)
         near = sorted(strikes, key=lambda k: abs(float(k) - fut))[:6]
         ivs = sorted(x for k in near for x in (_leg(rows, k, "c")[2], _leg(rows, k, "p")[2]) if x)
         vol = round(ivs[len(ivs) // 2], 2) if ivs else 0.0
         vol_src = "barchart_iv_median"
     dte = chosen["dte"]
+    qs = load_qs()
+    qs_map, iv_source = {}, "barchart"
+    if qs and qs.get("rows"):
+        same = (qs.get("expiry_date") == chosen["expiry"][:10])
+        fresh = True
+        try:
+            fresh = (datetime.now(TZ_BKK) - datetime.fromisoformat(qs["at"])).total_seconds() < 14 * 3600
+        except Exception:
+            pass
+        if same and fresh:
+            qs_map = {round(k, 1): v for k, v in qs["rows"]}
+            iv_source = "quikstrike"
     hdr = f"Gold (OG|GC) {chosen['code']} ({dte:.2f} DTE) vs {fut:g} ({chg:+g})"
     os.makedirs(MANUAL_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
@@ -172,7 +244,10 @@ def build_files(payload):
                  "Strike,Call,Put,Vol Settle"]
         for k in strikes:
             c, p = _leg(rows, k, "c"), _leg(rows, k, "p")
-            iv = c[2] or p[2] or 0.0
+            if qs_map:                                    # CME settlement smile (QuikStrike) wins; else 0 = n/a
+                iv = qs_map.get(round(float(k), 1), 0.0)
+            else:
+                iv = 0.0                                  # Barchart last-trade IV is noise — never publish it as a smile
             lines.append(f"{float(k):g},{int(c[idx])},{int(p[idx])},{round(iv / 100.0, 4)}")
         text = "\n".join(lines) + "\n"
         with open(os.path.join(MANUAL_DIR, name), "w", encoding="utf-8", newline="\n") as f:
@@ -187,7 +262,9 @@ def build_files(payload):
     status = {"at": datetime.now(TZ_BKK).isoformat(timespec="seconds"), "series": chosen["code"],
               "underlying": chosen["underlying"], "expiry": chosen["expiry"], "dte": dte, "future": fut,
               "chg": chg, "put_oi": put_oi, "call_oi": call_oi, "strikes": len(strikes),
-              "vol": vol, "vol_source": vol_src}
+              "vol": vol, "vol_source": vol_src, "iv_source": iv_source,
+              "iv_at": (qs or {}).get("at") if iv_source == "quikstrike" else None,
+              "iv_code": (qs or {}).get("code") if iv_source == "quikstrike" else None}
     json.dump(status, open(STATUS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     try:
         publish_live(status, texts)
@@ -206,6 +283,9 @@ def publish_live(status, texts):
         with open(os.path.join(LIVE_DIR, name), "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
     pub = dict(status, source="Barchart (CME data, ~10-15 min delay)")
+    qs = load_qs() if status.get("iv_source") == "quikstrike" else None
+    if qs:
+        pub["iv_kind"] = qs.get("kind"); pub["iv_atm"] = qs.get("atm"); pub["iv_n"] = len(qs.get("rows") or [])
     json.dump(pub, open(os.path.join(LIVE_DIR, "status.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if time.time() - STATE.get("last_publish", 0) < PUBLISH_MIN * 60:
         return
@@ -293,6 +373,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"symbols": [s["code"] for s in ser][:6],
                              "futures": sorted({s["underlying"] for s in ser}),
                              "series": ser[:6]})
+        elif self.path.startswith("/iv"):
+            self._send(200, load_qs() or {"rows": [], "msg": "no QuikStrike IV received yet"})
         elif self.path.startswith("/status"):
             self._send(200, {"last_ingest": STATE["last_ingest"], "status": STATE["last_status"],
                              "errors": STATE["errors"], "wanted": [s["code"] for s in upcoming_series()][:6]})
@@ -300,6 +382,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path.startswith("/iv"):
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8"))
+                d, msg = save_qs(payload)
+                if d:
+                    log(f"quikstrike iv: {d['code']} exp {d['expiry_date']} rows {len(d['rows'])} atm {d.get('atm')}")
+                return self._send(200, {"ok": bool(d), "msg": msg, "expiry_date": (d or {}).get("expiry_date")})
+            except Exception as e:
+                return self._send(500, {"ok": False, "msg": str(e)})
         if not self.path.startswith("/ingest"):
             return self._send(404, {"error": "not found"})
         try:
