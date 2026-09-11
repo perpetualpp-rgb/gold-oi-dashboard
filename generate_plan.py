@@ -518,7 +518,7 @@ def build_plan(s):
     sup_last = int(put_tail["strike"]) if put_tail.get("strike") else (sup[-1]["price"] if sup else round(fut - 3 * sd))
     res_last = int(call_tail["strike"]) if call_tail.get("strike") else (res[-1]["price"] if res else round(fut + 3 * sd))
     sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
-    sd_day = float(sdl["sd1"]) if (sdl and sdl.get("sd1")) else sd
+    sd_day = sd   # her rule 2026-09-11: the plan follows the traded SERIES (header Vol = its own ATM IV), not the sheet SD
     # far targets stay inside the day's realistic zone — Barchart lists strikes $400 away, so the
     # raw OI tail (e.g. 4750 / 4000 with price 4390) is not a same-day target
     res_last = min(res_last, round(fut + 2.5 * sd_day))
@@ -591,7 +591,7 @@ def build_plan(s):
     for tw in (magnet, call_tail, put_tail):
         if tw.get("strike"):
             walls[tw["strike"]] = max(walls.get(tw["strike"], 0), int(tw.get("oi", 0) or 0))
-    grid = grid_levels(fut, sd, basis, walls, sdl)   # $50 grid confined to the day's ±3SD zone
+    grid = grid_levels(fut, sd, basis, walls, None)  # $50 grid confined to ±2.5σ of the traded series
     g_up = next((g for g in grid if g["price"] > fut), None)
     g_dn = next((g for g in reversed(grid) if g["price"] < fut), None)
 
@@ -663,7 +663,9 @@ def build_plan(s):
                     else:
                         promoted.append(setup("long", tag, ef, ef - buf,
                                               [round(Lsd["m1"] + basis), round(Lsd["mean"] + basis)], note))
-            entries[:0] = promoted
+            # her rule 2026-09-11 ("ไม่ต้องเอา SD มายึด"): the SD zones never drive orders — the plan's
+            # orders come from the OI walls per the books; confluence stays an informational note.
+            pass
 
     # ── risk (regime-aware) ──
     bits = []

@@ -41,7 +41,7 @@ STATUS_PATH = os.path.join(MANUAL_DIR, "barchart_status.json")
 SD_PATH = os.path.join(ROOT, "gold-oi-dashboard", "sd_ladder.json")
 LOG_PATH = os.path.join(ROOT, "barchart_bridge.log")
 HORIZON_DAYS = 9          # how far ahead to list weekly series for the userscript
-MIN_DTE = 0.15            # drop a series in its last ~3.5 h (pageth also rolled at expiry)
+MIN_DTE = 0.03            # keep the nearest series until ~45 min before expiry (CME Vol2Vol showed it at 0.09 DTE)
 MIN_OI = 300              # ignore brand-new/empty series
 STALE_MIN = 60            # Telegram warning when the browser stops sending for this long
 REPO_DIR = os.path.join(ROOT, "gold-oi-dashboard")
@@ -279,18 +279,6 @@ def build_files(payload):
     call_oi = int(sum(_leg(rows, k, "c")[1] for k in strikes))
     put_vol = int(sum(_leg(rows, k, "p")[0] for k in strikes))
     call_vol = int(sum(_leg(rows, k, "c")[0] for k in strikes))
-    vol, vol_src = _sd_vol_today()
-    if (vol is None or str(vol_src).startswith("sd_lock_prev")) and qs and qs.get("atm") and iv_source == "quikstrike":
-        try:
-            if datetime.fromisoformat(qs["at"]).date() == datetime.now(TZ_BKK).date():
-                vol, vol_src = round(float(qs["atm"]), 2), "quikstrike_atm"
-        except Exception:
-            pass
-    if vol is None:                                   # fallback: median Barchart IV around the money (noisy!)
-        near = sorted(strikes, key=lambda k: abs(float(k) - fut))[:6]
-        ivs = sorted(x for k in near for x in (_leg(rows, k, "c")[2], _leg(rows, k, "p")[2]) if x)
-        vol = round(ivs[len(ivs) // 2], 2) if ivs else 0.0
-        vol_src = "barchart_iv_median"
     dte = chosen["dte"]
     qs = load_qs()
     qs_map, iv_source = {}, "barchart"
@@ -309,6 +297,18 @@ def build_files(payload):
         qs_map, comp_atm = computed_smile(rows, fut, dte)
         if qs_map:
             iv_source = "computed"
+    vol, vol_src = None, None
+    if iv_source == "computed" and comp_atm:
+        vol, vol_src = round(float(comp_atm), 2), "series_atm_computed"     # same series, same snapshot
+    elif iv_source == "quikstrike" and qs and qs.get("atm"):
+        vol, vol_src = round(float(qs["atm"]), 2), "quikstrike_atm"
+    if vol is None:                                   # no per-strike IV: her sheet (may be another series!)
+        vol, vol_src = _sd_vol_today()
+    if vol is None:                                   # fallback: median Barchart IV around the money (noisy!)
+        near = sorted(strikes, key=lambda k: abs(float(k) - fut))[:6]
+        ivs = sorted(x for k in near for x in (_leg(rows, k, "c")[2], _leg(rows, k, "p")[2]) if x)
+        vol = round(ivs[len(ivs) // 2], 2) if ivs else 0.0
+        vol_src = "barchart_iv_median"
     hdr = f"Gold (OG|GC) {chosen['code']} ({dte:.2f} DTE) vs {fut:g} ({chg:+g})"
     os.makedirs(MANUAL_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_DIR, exist_ok=True)

@@ -127,17 +127,21 @@ function ivLabel() {
 
 function volSourceLabel(src) {
   if (!src) return '';
-  if (src === 'sd_lock') return 'ชีตครูวันนี้';
-  if (src.startsWith('sd_lock_prev')) return 'ชีตครูล่าสุด ' + src.replace('sd_lock_prev(', '').replace(')', '');
+  if (src === 'series_atm_computed') return 'ATM IV ของ series นี้ · คำนวณจาก bid/ask';
+  if (src === 'quikstrike_atm') return 'ATM IV ของ series นี้ · QuikStrike';
+  if (src === 'sd_lock') return 'ชีตครูวันนี้ (อาจเป็นคนละ series)';
+  if (src.startsWith('sd_lock_prev')) return 'ชีตครูล่าสุด ' + src.replace('sd_lock_prev(', '').replace(')', '') + ' (อาจเป็นคนละ series)';
   return 'Barchart (ประมาณ)';
 }
 
 function chartPanel(d, kind) {
   const rows = d.rows || [];
   const F = (state.status && state.status.future) || d.future || 0;
-  const L = sdFut();
-  const sd1 = state.sdl ? Number(state.sdl.sd1) || 0 : 0;
-  const half = Math.max(sd1 ? 3.3 * sd1 : 0, 180);
+  // expected-range σ of THIS series (CME Vol2Vol style): F × ATM IV × √(DTE/365) — the header Vol is the
+  // series' own ATM IV (computed from bid/ask or QuikStrike), never the sheet Vol of another series
+  const ivPct = Number(d.iv) || 0, dte = Number(d.dte) || 0;
+  const sig = (F && ivPct && dte) ? F * (ivPct / 100) * Math.sqrt(dte / 365) : 0;
+  const half = Math.max(sig ? 3.3 * sig : 0, 120);
   const xmin = F - half, xmax = F + half;
   const vis = rows.filter((r) => r.strike >= xmin && r.strike <= xmax);
   const title = `${esc(d.contract || '')} ${kind === 'oi' ? 'Open Interest' : 'Intraday Volume'}`;
@@ -157,15 +161,21 @@ function chartPanel(d, kind) {
   const bw = Math.max(1.6, Math.min(9, (pw / ((xmax - xmin) / gap)) * 0.42));
 
   let svg = '';
-  // shaded SD zones (from the locked ladder) — only the tradeable ones, plus the mean line
-  if (L) {
+  // ±1σ / ±2σ / ±3σ expected-range bands of this series around the futures price (grey, CME-style);
+  // she reads the zones herself — they never drive the plan's orders
+  if (sig) {
     const clip = (a, b) => [Math.max(xmin, Math.min(a, b)), Math.min(xmax, Math.max(a, b))];
-    const [b0, b1] = clip(L.m3, L.m2), [s0, s1] = clip(L.p2, L.p3);
-    if (b1 > b0) svg += `<rect class="band-buy" x="${x(b0).toFixed(1)}" y="${MT}" width="${(x(b1) - x(b0)).toFixed(1)}" height="${ph}"/>` +
-      `<text class="band-lbl buy" x="${(x(b0) + 4).toFixed(1)}" y="${MT + 13}">BUY zone</text>`;
-    if (s1 > s0) svg += `<rect class="band-sell" x="${x(s0).toFixed(1)}" y="${MT}" width="${(x(s1) - x(s0)).toFixed(1)}" height="${ph}"/>` +
-      `<text class="band-lbl sell" x="${(x(s0) + 4).toFixed(1)}" y="${MT + 13}">SELL zone</text>`;
-    if (L.mean >= xmin && L.mean <= xmax) svg += `<line class="mean-line" x1="${x(L.mean).toFixed(1)}" y1="${MT}" x2="${x(L.mean).toFixed(1)}" y2="${MT + ph}"/>`;
+    const shade = [[3, 'band-3'], [2, 'band-2'], [1, 'band-1']];
+    for (const [n, cls] of shade) {
+      const [a, b] = clip(F - n * sig, F + n * sig);
+      if (b > a) svg += `<rect class="${cls}" x="${x(a).toFixed(1)}" y="${MT}" width="${(x(b) - x(a)).toFixed(1)}" height="${ph}"/>`;
+    }
+    for (const n of [-3, -2, -1, 1, 2, 3]) {
+      const v = F + n * sig;
+      if (v < xmin || v > xmax) continue;
+      svg += `<line class="band-edge" x1="${x(v).toFixed(1)}" y1="${MT}" x2="${x(v).toFixed(1)}" y2="${MT + ph}"/>` +
+        `<text class="band-lbl" x="${x(v).toFixed(1)}" y="${MT - 4}" text-anchor="middle">${n > 0 ? '+' : ''}${n}σ ${fmt.px0(toUnit(v))}</text>`;
+    }
   }
   // horizontal grid + left ticks (contracts)
   for (let i = 0; i <= 5; i++) {
@@ -211,8 +221,8 @@ function chartPanel(d, kind) {
   }
   // exact futures marker
   if (F >= xmin && F <= xmax) {
-    svg += `<line class="fut-line" x1="${x(F).toFixed(1)}" y1="${MT - 6}" x2="${x(F).toFixed(1)}" y2="${MT + ph}"/>` +
-      `<text class="fut-lbl" x="${(x(F) + 5).toFixed(1)}" y="${MT - 10}">Future: ${fmt.px(toUnit(F))}</text>`;
+    svg += `<line class="fut-line" x1="${x(F).toFixed(1)}" y1="${MT}" x2="${x(F).toFixed(1)}" y2="${MT + ph}"/>` +
+      `<text class="fut-lbl" x="${(x(F) + 5).toFixed(1)}" y="${MT + 14}">Future: ${fmt.px(toUnit(F))}</text>`;
   }
   svg += `<line class="hover-line" id="hl-${kind}" x1="0" y1="${MT}" x2="0" y2="${MT + ph}"/>`;
 
@@ -299,7 +309,12 @@ function renderChartFoot() {
     parts.push('ไม่มี status.json — ข้อมูลอาจเป็นชุดสำรอง');
   }
   if (state.fallback) parts.push('<span class="warn">⚠ ใช้ไฟล์สำรองเก่า (data/mirror) — bridge ยังไม่เผยแพร่ข้อมูลสด</span>');
-  parts.push(`แกนราคา: ${unitName()}${state.priceMode === 'cfd' ? ` (basis −${fmt.px(state.basis)})` : ''} · โซนสี = BUY/SELL zone ของวัน (ชีตครู) · ราคา Barchart ดีเลย์ ~10-15 นาที`);
+  const d0 = state.data[state.view === 'both' ? 'oi' : state.view] || state.data.oi;
+  if (d0 && d0.future && d0.iv && d0.dte) {
+    const sg = d0.future * (d0.iv / 100) * Math.sqrt(d0.dte / 365);
+    parts.push(`แถบเทา = ±1/2/3σ ของ series นี้: σ = ${fmt.px(d0.future)} × ${Number(d0.iv).toFixed(2)}% × √(${Number(d0.dte).toFixed(2)}/365) = $${sg.toFixed(1)}`);
+  }
+  parts.push(`แกนราคา: ${unitName()}${state.priceMode === 'cfd' ? ` (basis −${fmt.px(state.basis)})` : ''} · ราคา Barchart ดีเลย์ ~10-15 นาที`);
   el.innerHTML = parts.join(' · ');
 }
 

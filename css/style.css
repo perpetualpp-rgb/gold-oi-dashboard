@@ -141,12 +141,15 @@ header {
 .chart-svg .iv-dot { fill: #e06c9f; stroke: var(--bg0); stroke-width: 0.8; }
 .chart-svg .fut-line { stroke: var(--fg0); stroke-width: 1.2; stroke-dasharray: 5 4; }
 .chart-svg .fut-lbl { font-family: var(--mono); font-size: 11px; fill: var(--fg0); font-weight: 600; }
-.chart-svg .band-buy { fill: var(--z-buy); }
-.chart-svg .band-sell { fill: var(--z-sell); }
-.chart-svg .band-mid { fill: var(--z-mid); }
-.chart-svg .band-lbl { font-family: var(--mono); font-size: 10px; font-weight: 600; }
-.chart-svg .band-lbl.buy { fill: var(--up); }
-.chart-svg .band-lbl.sell { fill: var(--down); }
+.chart-svg .band-3 { fill: rgba(120, 112, 100, 0.07); }
+.chart-svg .band-2 { fill: rgba(120, 112, 100, 0.09); }
+.chart-svg .band-1 { fill: rgba(120, 112, 100, 0.12); }
+[data-theme="dark"] .chart-svg .band-3 { fill: rgba(200, 200, 200, 0.05); }
+[data-theme="dark"] .chart-svg .band-2 { fill: rgba(200, 200, 200, 0.07); }
+[data-theme="dark"] .chart-svg .band-1 { fill: rgba(200, 200, 200, 0.10); }
+.chart-svg .band-edge { stroke: var(--fg3); stroke-width: 0.8; stroke-dasharray: 2 3; }
+.chart-svg .band-lbl { font-family: var(--mono); font-size: 9.5px; fill: var(--fg2); }
+.lg-sd { color: var(--fg2); }
 .chart-svg .mean-line { stroke: var(--fg2); stroke-width: 1; stroke-dasharray: 2 3; }
 .chart-svg .hover-line { stroke: var(--fg1); stroke-width: 1; opacity: 0; }
 .chart-tip {
