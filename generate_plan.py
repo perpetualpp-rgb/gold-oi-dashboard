@@ -517,6 +517,12 @@ def build_plan(s):
     sup1 = sup[0]["price"] if sup else round(fut - sd)
     sup_last = int(put_tail["strike"]) if put_tail.get("strike") else (sup[-1]["price"] if sup else round(fut - 3 * sd))
     res_last = int(call_tail["strike"]) if call_tail.get("strike") else (res[-1]["price"] if res else round(fut + 3 * sd))
+    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
+    sd_day = float(sdl["sd1"]) if (sdl and sdl.get("sd1")) else sd
+    # far targets stay inside the day's realistic zone — Barchart lists strikes $400 away, so the
+    # raw OI tail (e.g. 4750 / 4000 with price 4390) is not a same-day target
+    res_last = min(res_last, round(fut + 2.5 * sd_day))
+    sup_last = max(sup_last, round(fut - 2.5 * sd_day))
     m1, p1 = round(fut - sd), round(fut + sd)
 
     # ── scenarios (if-then, with real levels; honour "don't chase / wait for H1 wick") ──
@@ -543,8 +549,6 @@ def build_plan(s):
     # SL buffer behind the wall, wider when volatile (book: high vol => widen SL).
     # Scaled by the DAY's sigma = the locked SD ladder's 1SD when available: the option sigma of a
     # multi-day series (Friday weekly, DTE 3.5) is a WEEKLY range and blew SL out to $39 (2026-09-08).
-    sdl = sd_ladder(basis, s)                     # KruJeab 05:00 SD ladder (teacher-sheet formula)
-    sd_day = float(sdl["sd1"]) if (sdl and sdl.get("sd1")) else sd
     buf = max(round(0.6 * sd_day) if regime == "high" else round(0.4 * sd_day), 12)
 
     def setup(side, title, e, sl, tps, note):
@@ -720,7 +724,9 @@ def build_plan(s):
     skew_txt = {"put": "skew กลัวลง", "call": "skew กลัวตกรถ (FOMO)", "flat": "skew สมดุล"}[skew]
     chg_txt = f"{'+' if chg >= 0 else ''}{chg}"
     head = (f"ทอง{dirword} {chg_txt} มาที่ {fut} · IV {s['atm_iv']}% (regime {regime}) · "
-            f"P/C OI {s.get('pcr_oi')} · {skew_txt} (Put {s['iv_skew']['put_side_avg']}% vs Call {s['iv_skew']['call_side_avg']}%). ")
+            f"P/C OI {s.get('pcr_oi')}"
+            + ("" if ps.manual_dir() else f" · {skew_txt} (Put {s['iv_skew']['put_side_avg']}% vs Call {s['iv_skew']['call_side_avg']}%)")
+            + ". ")
     if bias == "short":
         head += f"มอง SHORT ({bias_why}) — รอเด้งชนแนวต้าน {res1} แล้วค่อยหาจังหวะ อย่าไล่"
     elif bias == "long":

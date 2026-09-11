@@ -1,19 +1,21 @@
 /* ============================================================
-   data.js — fetch + parse Vol2Vol data
-   Source: github.com/pageth/Vol2VolData  (raw text files)
+   data.js — fetch + parse the live option data files
+   Source (2026-09): the Barchart → GoldOI bridge publishes CME weekly gold option
+   OI / intraday volume (per strike) into data/live/ every ~30 min while her Barchart
+   tab is open. Same text format the old pageth feed used:
 
-   File format (both OIData.txt and IntradayData.txt):
-     line 0: Gold (OG|GC) G2TM6 (0.17 DTE) vs 4364.2 (+0.8) - Open Interest
-     line 1: Put: 1,920  Call: 2,105  Vol: 28.55  Vol Chg: -0.53  Future Chg: 0.8
+     line 0: Gold (OG|GC) IG2U26 (1.05 DTE) vs 4362.6 (-64.1) - Open Interest
+     line 1: Put: 5,421  Call: 5,054  Vol: 31.31  Vol Chg: 0.00  Future Chg: -64.1
      line 2: Strike,Call,Put,Vol Settle
-     line 3+: 4285,0,13,0.3558...
+     line 3+: 4350,2,561,0.359          (Vol Settle = per-strike IV as a FRACTION)
    ============================================================ */
 
 const DATA_SOURCE = {
-  oi:       'https://raw.githubusercontent.com/pageth/Vol2VolData/main/OIData.txt',
-  intraday: 'https://raw.githubusercontent.com/pageth/Vol2VolData/main/IntradayData.txt',
+  oi:       'data/live/OIData.txt',
+  intraday: 'data/live/IntradayData.txt',
+  status:   'data/live/status.json',
 };
-// our own mirror (same-origin on GitHub Pages) — fallback if pageth is unreachable/deleted
+// last-resort copies (may be days old) — only if data/live is missing
 const DATA_FALLBACK = {
   oi:       'data/mirror/OIData.txt',
   intraday: 'data/mirror/IntradayData.txt',
@@ -27,13 +29,20 @@ async function fetchOne(url) {
   return txt;
 }
 
-// fetch raw text; try pageth first, fall back to our mirror. Returns { text, fb }.
+// fetch raw text; try the live file first, fall back to the old mirror. Returns { text, fb }.
 async function fetchText(primary, fallback) {
   try { return { text: await fetchOne(primary), fb: false }; }
   catch (e) {
-    if (fallback) return { text: await fetchOne(fallback), fb: true };   // throws if mirror also dead
+    if (fallback) return { text: await fetchOne(fallback), fb: true };
     throw e;
   }
+}
+
+async function fetchStatus() {
+  try {
+    const res = await fetch(DATA_SOURCE.status + '?t=' + Date.now(), { cache: 'no-store' });
+    return res.ok ? await res.json() : null;
+  } catch (e) { return null; }
 }
 
 function parseVol2Vol(text) {
@@ -70,42 +79,9 @@ function parseVol2Vol(text) {
       strike,
       call: parseInt(p[1], 10) || 0,
       put:  parseInt(p[2], 10) || 0,
-      iv:   parseFloat(p[3]) || 0,   // per-strike "Vol Settle" (implied vol, decimal)
+      iv:   parseFloat(p[3]) || 0,   // per-strike IV (decimal); 0 = not available
     });
   }
-
   meta.rows = rows;
   return meta;
-}
-
-// 1 standard deviation in price points:  σ = future × (IV%/100) × √(DTE/365)
-function sigmaOf(d) {
-  if (!d || !d.future || !d.iv || !d.dte) return 0;
-  return d.future * (d.iv / 100) * Math.sqrt(d.dte / 365);
-}
-
-// normal distribution height at x (for the bell curve)
-function normalPDF(x, mu, s) {
-  if (!s) return 0;
-  const z = (x - mu) / s;
-  return Math.exp(-0.5 * z * z) / (s * Math.sqrt(2 * Math.PI));
-}
-
-// open-interest-weighted mean strike = "centre of gravity" of all the OI/volume
-function oiWeightedMean(rows) {
-  let wsum = 0, w = 0;
-  for (const r of rows) {
-    const v = r.call + r.put;
-    wsum += r.strike * v; w += v;
-  }
-  return w ? wsum / w : 0;
-}
-
-// merge OI + Intraday by strike → { strike, oiCall, oiPut, inCall, inPut }
-function mergeBoth(oiRows, inRows) {
-  const map = new Map();
-  const ensure = (s) => map.get(s) || (map.set(s, { strike: s, oiCall: 0, oiPut: 0, inCall: 0, inPut: 0 }), map.get(s));
-  for (const r of oiRows) { const o = ensure(r.strike); o.oiCall = r.call; o.oiPut = r.put; }
-  for (const r of inRows) { const o = ensure(r.strike); o.inCall = r.call; o.inPut = r.put; }
-  return [...map.values()].sort((a, b) => a.strike - b.strike);
 }

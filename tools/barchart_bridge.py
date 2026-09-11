@@ -44,6 +44,11 @@ HORIZON_DAYS = 9          # how far ahead to list weekly series for the userscri
 MIN_DTE = 0.15            # drop a series in its last ~3.5 h (pageth also rolled at expiry)
 MIN_OI = 300              # ignore brand-new/empty series
 STALE_MIN = 60            # Telegram warning when the browser stops sending for this long
+REPO_DIR = os.path.join(ROOT, "gold-oi-dashboard")
+LIVE_DIR = os.path.join(REPO_DIR, "data", "live")   # published to the website (GitHub Pages)
+PUBLISH_MIN = 30          # git push the live files at most this often (Pages rebuild budget)
+import subprocess
+PUB_LOCK = threading.Lock()
 
 # Barchart weekly gold option codes (decoded from the site's own dropdowns, 2026-09-09):
 # code = PREFIX + WEEKCHAR + MONTHCODE + YY ; "Week n" = n-th <weekday> of that month.
@@ -175,15 +180,56 @@ def build_files(payload):
         stamp = datetime.now(TZ_BKK).strftime("%Y-%m-%d_%H%M")
         with open(os.path.join(ARCHIVE_DIR, f"{stamp}_{name}"), "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
+        return text
 
-    write("OIData.txt", "Open Interest", 1, put_oi, call_oi)
-    write("IntradayData.txt", "Intraday Volume", 0, put_vol, call_vol)
+    texts = {"OIData.txt": write("OIData.txt", "Open Interest", 1, put_oi, call_oi),
+             "IntradayData.txt": write("IntradayData.txt", "Intraday Volume", 0, put_vol, call_vol)}
     status = {"at": datetime.now(TZ_BKK).isoformat(timespec="seconds"), "series": chosen["code"],
               "underlying": chosen["underlying"], "expiry": chosen["expiry"], "dte": dte, "future": fut,
               "chg": chg, "put_oi": put_oi, "call_oi": call_oi, "strikes": len(strikes),
               "vol": vol, "vol_source": vol_src}
     json.dump(status, open(STATUS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    try:
+        publish_live(status, texts)
+    except Exception as e:
+        log(f"publish_live error: {e}")
     return status, "ok"
+
+
+def publish_live(status, texts):
+    """Copy the live files into the website repo (data/live/) and git-push them at most every
+    PUBLISH_MIN minutes, so the dashboard chart follows the market during the day (not only at
+    the 3 plan slots). The push runs in a background thread; generate_plan's own push at slot
+    time also carries data/live (its git_push stages the data/ folder)."""
+    os.makedirs(LIVE_DIR, exist_ok=True)
+    for name, text in texts.items():
+        with open(os.path.join(LIVE_DIR, name), "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+    pub = dict(status, source="Barchart (CME data, ~10-15 min delay)")
+    json.dump(pub, open(os.path.join(LIVE_DIR, "status.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    if time.time() - STATE.get("last_publish", 0) < PUBLISH_MIN * 60:
+        return
+    STATE["last_publish"] = time.time()
+    threading.Thread(target=_git_publish, args=(status.get("series"),), daemon=True).start()
+
+
+def _git_publish(series):
+    if not PUB_LOCK.acquire(blocking=False):
+        return
+    try:
+        def git(*a, timeout=90):
+            return subprocess.run(["git", "-C", REPO_DIR, *a], capture_output=True, text=True, timeout=timeout)
+        git("add", "data/live")
+        c = git("commit", "-q", "-m", f"live data {series} {datetime.now(TZ_BKK).strftime('%m-%d %H:%M')}")
+        if c.returncode != 0 and "nothing to commit" in (c.stdout + c.stderr):
+            return
+        git("pull", "--rebase", "-X", "theirs", "origin", "main", "-q")
+        r = git("push", "-q", "origin", "main")
+        log(f"live publish: {'ok' if r.returncode == 0 else 'FAILED ' + (r.stderr or '')[-160:]}")
+    except Exception as e:
+        log(f"live publish error: {e}")
+    finally:
+        PUB_LOCK.release()
 
 
 def tg_send(text):

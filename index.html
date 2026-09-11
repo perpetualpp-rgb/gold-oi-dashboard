@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Gold OI Dashboard · GC</title>
-<meta name="description" content="Gold (GC) Open Interest & Intraday Volume walls with standard-deviation zones + TradingView chart.">
+<meta name="description" content="Gold (GC) weekly options — Open Interest & Intraday Volume by strike, OI trade plan, and the day's tradeable SD zones.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%23c9920a'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=21">
+<link rel="stylesheet" href="css/style.css?v=22">
 </head>
 <body>
 <div class="page">
@@ -17,8 +17,8 @@
   <!-- ── HEADER ── -->
   <header>
     <div class="hdr-left">
-      <div class="hdr-eyebrow">GOLD · COMEX GC FUTURES</div>
-      <h1 class="hdr-title">OI &amp; Volume Walls</h1>
+      <div class="hdr-eyebrow">GOLD · COMEX GC WEEKLY OPTIONS</div>
+      <h1 class="hdr-title">OI &amp; Intraday Volume</h1>
       <div class="hdr-sub" id="contract-line">—</div>
     </div>
     <div class="hdr-right">
@@ -32,101 +32,48 @@
 
   <div class="status-line"><span class="pulse" id="pulse"></span><span id="status">กำลังโหลด…</span></div>
 
-  <!-- ── "plan updating" banner (shown by app.js during the GitHub-Pages rebuild lag) ── -->
+  <!-- shown by app.js during the GitHub-Pages rebuild lag after a plan slot -->
   <div class="stale-banner" id="stale-banner" style="display:none"></div>
 
-  <!-- ── AI PLAN (from The Invisible Money method, 13:00 & 19:00) ── -->
-  <section class="plan-card" id="plan"><!-- filled by app.js --></section>
-
-  <!-- ── $50 GRID (book Ch6: round Block-Trade levels) ── -->
-  <section class="grid-wrap" id="grid" style="display:none"><!-- filled by app.js --></section>
-
-  <!-- ── KRUJEAB SD LADDER (teacher-sheet formula · locked daily 05:00 ICT) ── -->
-  <section class="sdl-wrap" id="sdl" style="display:none"><!-- filled by app.js --></section>
-
-  <!-- ── TRACK RECORD (auto-evaluated outcomes) ── -->
-  <section class="track-wrap" id="track" style="display:none"><!-- filled by app.js --></section>
-
-  <!-- ── SUMMARY CARDS ── -->
-  <section class="summary" id="summary"><!-- filled by app.js --></section>
-
-  <!-- ── SD GAUGE ── -->
-  <section class="gauge-card" id="gauge"><!-- filled by app.js --></section>
-
-  <!-- ── VIEW TOGGLE ── -->
-  <div class="toolbar">
-    <div class="seg" role="tablist">
-      <button class="seg-btn active" id="seg-oi" role="tab">OI</button>
-      <button class="seg-btn" id="seg-intraday" role="tab">Intraday</button>
-      <button class="seg-btn" id="seg-both" role="tab">Both</button>
-    </div>
-    <div class="legend">
-      <span class="lg lg-call">■ Call</span>
-      <span class="lg lg-put">■ Put</span>
-    </div>
-  </div>
-
-  <!-- ── BELL CURVE (compact distribution) ── -->
-  <section class="bell-wrap">
-    <div class="bell-top">
-      <div class="bell-srctime" id="data-time"><!-- source update time by app.js --></div>
-      <div class="mini-seg" title="สลับหน่วยราคาแกนกราฟ">
-        <button class="mini-btn active" id="px-fut">Futures</button>
+  <!-- ── 1. CHART (CME-style: Put/Call per strike · IV smile · futures marker · SD zones) ── -->
+  <section class="chart-card" id="chart-card">
+    <div class="toolbar">
+      <div class="seg" role="tablist">
+        <button class="seg-btn" id="seg-intraday" role="tab">Intraday</button>
+        <button class="seg-btn" id="seg-oi" role="tab">OI</button>
+        <button class="seg-btn" id="seg-both" role="tab">Both</button>
+      </div>
+      <div class="legend">
+        <span class="lg lg-put">■ Put</span>
+        <span class="lg lg-call">■ Call</span>
+        <span class="lg lg-iv">┄ IV</span>
+        <span class="lg lg-buy">▮ BUY zone</span>
+        <span class="lg lg-sell">▮ SELL zone</span>
+      </div>
+      <div class="mini-seg" title="หน่วยราคาบนแกน/แผน">
+        <button class="mini-btn" id="px-fut">Futures</button>
         <button class="mini-btn" id="px-cfd">CFD</button>
       </div>
     </div>
-    <div id="bell"><!-- svg by app.js --></div>
-    <div class="bell-cross" id="bell-cross"></div>
-    <div class="bell-tip" id="bell-tip"></div>
-    <div class="bell-axis" id="bell-axis"></div>
-    <div class="bell-cap" id="bell-cap"></div>
+    <div id="chart-panels"><div class="chart-empty">กำลังโหลดข้อมูล…</div></div>
+    <div class="chart-tip" id="chart-tip"></div>
+    <div class="chart-foot" id="chart-foot"></div>
   </section>
 
-  <!-- ── OI LADDER ── -->
-  <section class="ladder-wrap">
-    <div class="ladder-head">
-      <span>Put</span><span>Strike</span><span>Call</span>
-    </div>
-    <div id="ladder" class="ladder"><!-- filled by app.js --></div>
-    <div class="zone-key">
-      <span class="zk zk-in">±1σ 68%</span>
-      <span class="zk zk-1">±2σ 95%</span>
-      <span class="zk zk-2">±3σ 99.7%</span>
-    </div>
-  </section>
+  <!-- ── 2. TRADE PLAN (OI walls per the books · ⭐ OI×SD confluence · one order per side) ── -->
+  <section class="plan-card" id="plan"><!-- filled by app.js --></section>
 
-  <!-- ── COT · Commitment of Traders (CFTC weekly · book Ch3: smart money + fade retail) ── -->
-  <section class="cot-wrap" id="cot" style="display:none"><!-- filled by app.js --></section>
+  <!-- ── 3. TRADEABLE SD ZONES (teacher-sheet formula, locked once a day) ── -->
+  <section class="sdz-card" id="sdz" style="display:none"><!-- filled by app.js --></section>
 
-  <!-- ── RETAIL SENTIMENT (myfxbook · book "OI มีอยู่จริง" Step 1: fade the crowd) ── -->
-  <section class="senti-wrap">
-    <div class="section-title">Sentiment รายย่อย · <b>สวนทาง</b> — รายย่อยมักผิด 80–90% (Long แน่น = น้ำหนักลง / Short แน่น = น้ำหนักขึ้น)</div>
-    <div class="senti-frame">
-      <div><script class="powered" type="text/javascript" src="https://widgets.myfxbook.com/scripts/fxOutlook.js?type=1&symbols=,51"></script></div>
-      <div style="font-size:10px;text-align:right"><a href="https://www.myfxbook.com" title="" class="myfxbookLink" target="_blank" rel="noopener">Powered by Myfxbook.com</a></div>
-      <script type="text/javascript">showOutlookWidget()</script>
-    </div>
-  </section>
-
-  <!-- ── TRADINGVIEW CHART ── -->
-  <section class="chart-wrap">
-    <div class="section-title">กราฟ TradingView · วางแผนรายวัน</div>
-    <div class="tv-frame">
-      <div class="tradingview-widget-container" id="tv">
-        <div class="tradingview-widget-container__widget"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ── FOOTER ── -->
   <footer>
-    <span>ข้อมูล OI/Volume: <a href="https://github.com/pageth/Vol2VolData" target="_blank" rel="noopener">pageth/Vol2VolData</a></span>
+    <span>ข้อมูล: Barchart (CME) ผ่าน GoldOI bridge · แผน: OI ตามหนังสือ · โซน SD: ชีตครู</span>
     <span id="data-stamp"></span>
   </footer>
 
 </div>
 
-<script src="js/data.js?v=3"></script>
-<script src="js/app.js?v=21"></script>
+<script src="js/data.js?v=22"></script>
+<script src="js/app.js?v=22"></script>
 </body>
 </html>
