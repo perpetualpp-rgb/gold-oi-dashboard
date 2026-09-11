@@ -1,5 +1,5 @@
-Gold (OG|GC) IG2U26 (0.44 DTE) vs 4351.3 (-22.4) - Open Interest
-Put: 7,225  Call: 8,943  Vol: 44.99  Vol Chg: 0.00  Future Chg: -22.4
+Gold (OG|GC) IG2U26 (0.19 DTE) vs 4342.8 (-30.9) - Open Interest
+Put: 7,225  Call: 8,943  Vol: 44.99  Vol Chg: 0.00  Future Chg: -30.9
 Strike,Call,Put,Vol Settle
 3000,0,0,0.0
 3250,0,0,0.0
