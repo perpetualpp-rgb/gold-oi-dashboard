@@ -1,7 +1,9 @@
 // ==UserScript==
 // @name         Barchart → GoldOI Bridge
 // @namespace    goldoi.bridge
-// @version      1.1.0
+// @version      1.2.0
+// @updateURL    https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
+// @downloadURL  https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @description  ส่งข้อมูล OI/Volume/ราคา (Barchart) และ IV ราย strike (QuikStrike Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Pricing Sheet ค้างไว้
 // @author       GoldOI
 // @match        https://www.barchart.com/*
@@ -40,7 +42,8 @@
   });
 
   // ═══════════════════════════ Barchart: OI / volume / futures ═══════════════════════════
-  const FIELDS = 'optionType%2Cvolume%2CopenInterest%2CstrikePrice%2CoptImpliedVolatility';
+  // bid/ask are one delayed snapshot for every strike → the bridge computes a consistent IV smile from mids
+  const FIELDS = 'optionType%2Cvolume%2CopenInterest%2CstrikePrice%2CoptImpliedVolatility%2CbidPrice%2CaskPrice';
   async function api(path) {
     const r = await fetch(path, { headers: { accept: 'application/json' }, credentials: 'include' });
     if (!r.ok) throw new Error('barchart HTTP ' + r.status);
@@ -56,7 +59,7 @@
         if (r.strikePrice == null) continue;
         const k = String(r.strikePrice);
         rows[k] = rows[k] || {};
-        rows[k][r.optionType === 'Call' ? 'c' : 'p'] = [r.volume || 0, r.openInterest || 0, r.optImpliedVolatility || 0];
+        rows[k][r.optionType === 'Call' ? 'c' : 'p'] = [r.volume || 0, r.openInterest || 0, r.optImpliedVolatility || 0, r.bidPrice || 0, r.askPrice || 0];
       }
     }
     return { n: Object.keys(rows).length, rows };

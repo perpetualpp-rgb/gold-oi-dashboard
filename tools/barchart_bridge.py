@@ -165,6 +165,76 @@ def save_qs(payload):
     return d, "ok"
 
 
+import math
+
+
+def _ncdf(x):
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def black76(F, K, T, sigma, call=True):
+    """Undiscounted Black-76 price (DTE of a few days → discounting is negligible)."""
+    if T <= 0 or sigma <= 0:
+        return max(0.0, (F - K) if call else (K - F))
+    v = sigma * math.sqrt(T)
+    d1 = (math.log(F / K) + 0.5 * v * v) / v
+    d2 = d1 - v
+    return F * _ncdf(d1) - K * _ncdf(d2) if call else K * _ncdf(-d2) - F * _ncdf(-d1)
+
+
+def implied_vol(price, F, K, T, call=True):
+    """Bisection IV; None when the price sits inside intrinsic/no-arb bounds or cannot be solved."""
+    intrinsic = max(0.0, (F - K) if call else (K - F))
+    if price <= intrinsic + 0.05:
+        return None
+    lo, hi = 0.01, 3.0
+    if black76(F, K, T, hi, call) < price:
+        return None
+    for _ in range(60):
+        m = 0.5 * (lo + hi)
+        if black76(F, K, T, m, call) > price:
+            hi = m
+        else:
+            lo = m
+    return 0.5 * (lo + hi)
+
+
+def computed_smile(rows, fut, dte):
+    """Per-strike IV solved from the OTM side's bid/ask MID at ONE delayed Barchart snapshot (same
+    series, same reference time, same underlying quote). Filters: two-sided quote, mid >= 0.3,
+    spread/mid <= 60%, solvable, 3%..250%, then obvious outliers vs the median dropped.
+    Returns ({strike: ivPct}, atmPct|None). This is her spec's 'Current IV Smile' — never Barchart's
+    own last-trade IV column."""
+    T = max(float(dte), 0.02) / 365.0
+    pts = {}
+    for k in rows:
+        K = float(k)
+        leg = (rows[k].get("c") if K >= fut else rows[k].get("p")) or []
+        if len(leg) < 5:
+            continue
+        bid, ask = float(leg[3] or 0), float(leg[4] or 0)
+        if bid <= 0 or ask <= 0 or ask < bid:
+            continue
+        mid = 0.5 * (bid + ask)
+        if mid < 0.3 or (ask - bid) / mid > 0.6:
+            continue
+        iv = implied_vol(mid, fut, K, T, K >= fut)
+        if iv and 0.03 <= iv <= 2.5:
+            pts[round(K, 1)] = iv * 100.0
+    if len(pts) < 8:
+        return {}, None
+    med = sorted(pts.values())[len(pts) // 2]
+    pts = {k: round(v, 2) for k, v in pts.items() if 0.4 * med <= v <= 2.0 * med}
+    ks = sorted(pts)
+    atm = None
+    lo = [k for k in ks if k <= fut]
+    hi = [k for k in ks if k >= fut]
+    if lo and hi:
+        a, b = lo[-1], hi[0]
+        atm = pts[a] if a == b else round(pts[a] + (pts[b] - pts[a]) * (fut - a) / (b - a), 2)
+    return pts, atm
+
+
 def _sd_vol_today():
     """ATM Vol for the header. Barchart's per-strike IV is computed from stale last trades (read 33-55%
     when QuikStrike said 22.6 on 2026-09-09) — it must NEVER drive regime/SD. Order: her teacher-sheet
@@ -234,6 +304,11 @@ def build_files(payload):
         if same and fresh:
             qs_map = {round(k, 1): v for k, v in qs["rows"]}
             iv_source = "quikstrike"
+    comp_atm = None
+    if not qs_map:                                    # no CME settlement smile → compute a current one
+        qs_map, comp_atm = computed_smile(rows, fut, dte)
+        if qs_map:
+            iv_source = "computed"
     hdr = f"Gold (OG|GC) {chosen['code']} ({dte:.2f} DTE) vs {fut:g} ({chg:+g})"
     os.makedirs(MANUAL_DIR, exist_ok=True)
     os.makedirs(ARCHIVE_DIR, exist_ok=True)
@@ -263,8 +338,10 @@ def build_files(payload):
               "underlying": chosen["underlying"], "expiry": chosen["expiry"], "dte": dte, "future": fut,
               "chg": chg, "put_oi": put_oi, "call_oi": call_oi, "strikes": len(strikes),
               "vol": vol, "vol_source": vol_src, "iv_source": iv_source,
-              "iv_at": (qs or {}).get("at") if iv_source == "quikstrike" else None,
-              "iv_code": (qs or {}).get("code") if iv_source == "quikstrike" else None}
+              "iv_kind": ("settlement_sheet" if iv_source == "quikstrike" else "current_computed" if iv_source == "computed" else None),
+              "iv_at": ((qs or {}).get("at") if iv_source == "quikstrike" else datetime.now(TZ_BKK).isoformat(timespec="seconds") if iv_source == "computed" else None),
+              "iv_code": ((qs or {}).get("code") if iv_source == "quikstrike" else chosen["code"] if iv_source == "computed" else None),
+              "iv_n": len(qs_map), "iv_atm": ((qs or {}).get("atm") if iv_source == "quikstrike" else comp_atm)}
     json.dump(status, open(STATUS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     try:
         publish_live(status, texts)
@@ -283,9 +360,7 @@ def publish_live(status, texts):
         with open(os.path.join(LIVE_DIR, name), "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
     pub = dict(status, source="Barchart (CME data, ~10-15 min delay)")
-    qs = load_qs() if status.get("iv_source") == "quikstrike" else None
-    if qs:
-        pub["iv_kind"] = qs.get("kind"); pub["iv_atm"] = qs.get("atm"); pub["iv_n"] = len(qs.get("rows") or [])
+
     json.dump(pub, open(os.path.join(LIVE_DIR, "status.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if time.time() - STATE.get("last_publish", 0) < PUBLISH_MIN * 60:
         return

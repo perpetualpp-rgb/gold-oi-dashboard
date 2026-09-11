@@ -106,13 +106,23 @@ function pchipPath(pts, xf, yf) {
   return path;
 }
 
+function ivKindText() {
+  const s = state.status;
+  if (!s) return null;
+  if (s.iv_source === 'quikstrike') return s.iv_kind === 'settlement' ? 'Settlement IV Smile' : 'IV Smile (QuikStrike Pricing Sheet)';
+  if (s.iv_source === 'computed') return 'Current IV Smile';
+  return null;
+}
 function ivLabel() {
   const s = state.status;
-  if (!s || s.iv_source !== 'quikstrike') return 'IV unavailable — ไม่มี IV ราย strike ที่ตรวจสอบได้ (ไม่สร้างเส้นแทน)';
+  const kind = ivKindText();
+  if (!kind) return 'IV unavailable — ไม่มี IV ราย strike ที่ตรวจสอบได้ (ไม่สร้างเส้นแทน)';
   let when = '';
   try { when = new Date(s.iv_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
-  const kind = s.iv_kind === 'settlement' ? 'Settlement IV Smile' : 'IV Smile (QuikStrike Pricing Sheet)';
-  return `${kind} · ${esc(s.iv_code || '')} · ค่า ณ ${when} · เส้นระหว่างจุด = Interpolated (PCHIP)`;
+  const how = s.iv_source === 'computed'
+    ? `คำนวณ (Black-76) จากราคากลาง bid/ask ฝั่ง OTM ของ ${esc(s.iv_code || '')} ณ snapshot เดียวกัน · Barchart ดีเลย์ ~10-15 นาที`
+    : `${esc(s.iv_code || '')}`;
+  return `${kind} · ${how} · ค่า ณ ${when} · ${s.iv_n || ''} strikes · เส้นระหว่างจุด = Interpolated (PCHIP) ไม่ลากเลยช่วงข้อมูล`;
 }
 
 function volSourceLabel(src) {
@@ -182,7 +192,7 @@ function chartPanel(d, kind) {
   // PCHIP-interpolated (shape-preserving: no overshoot, no forced U, no extrapolation beyond the
   // first/last strike; gaps wider than 3x the median strike gap are left open). Barchart's
   // last-trade IVs never qualify → "IV unavailable" instead of a substitute curve.
-  const ivOk = !!(state.status && state.status.iv_source === 'quikstrike');
+  const ivOk = !!(state.status && (state.status.iv_source === 'quikstrike' || state.status.iv_source === 'computed'));
   const ivp = ivOk ? vis.filter((r) => r.iv >= 0.02 && r.iv <= 2).sort((a, b) => a.strike - b.strike) : [];
   if (ivp.length >= 3) {
     const ivs = ivp.map((r) => r.iv);
@@ -209,7 +219,7 @@ function chartPanel(d, kind) {
   chartGeom[kind] = { xmin, xmax, ML, pw, W, rows: vis, F };
   const vol = (state.status && state.status.vol) || d.iv;
   const volSrc = volSourceLabel(state.status && state.status.vol_source);
-  const ivAtm = ivOk && state.status.iv_atm != null ? ` &nbsp; <span class="st-vol">IV ATM: ${Number(state.status.iv_atm).toFixed(2)}</span> <span style="color:var(--fg2)">(QuikStrike)</span>` : '';
+  const ivAtm = ivOk && state.status.iv_atm != null ? ` &nbsp; <span class="st-vol">IV ATM: ${Number(state.status.iv_atm).toFixed(2)}</span> <span style="color:var(--fg2)">(${state.status.iv_source === 'computed' ? 'computed' : 'QuikStrike'})</span>` : '';
   const stats = `<span class="st-put">Put: ${fmt.int(d.totalPut)}</span> &nbsp; <span class="st-call">Call: ${fmt.int(d.totalCall)}</span> &nbsp; ` +
     `<span class="st-vol">Vol: ${vol ? Number(vol).toFixed(2) : '—'}</span>${volSrc ? ` <span style="color:var(--fg2)">(${esc(volSrc)})</span>` : ''}${ivAtm}`;
   return `<div class="chart-panel"><div class="chart-head"><span class="chart-title">${title}</span><span class="chart-stats">${stats}</span></div>` +
@@ -226,9 +236,8 @@ function renderChart() {
   el.innerHTML = html;
   el.querySelectorAll('svg.chart-svg').forEach(attachHover);
   const lg = $('lg-iv');
-  if (lg) lg.textContent = (state.status && state.status.iv_source === 'quikstrike')
-    ? `┄ ${state.status.iv_kind === 'settlement' ? 'Settlement IV' : 'IV Smile (QuikStrike)'}`
-    : '┄ IV unavailable';
+  const kindTxt = ivKindText();
+  if (lg) lg.textContent = kindTxt ? `┄ ${kindTxt}` : '┄ IV unavailable';
   renderChartFoot();
   const d = state.data.oi || state.data.intraday;
   if (d) {
