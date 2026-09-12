@@ -1,4 +1,4 @@
-Gold (OG|GC) IY2U26 (2.09 DTE) vs 4374.8 (+1.1) - Intraday Volume
+Gold (OG|GC) IY2U26 (2.07 DTE) vs 4374.8 (+1.1) - Intraday Volume
 Put: 2,220  Call: 1,846  Vol: 44.99  Vol Chg: 0.00  Future Chg: +1.1
 Strike,Call,Put,Vol Settle
 3000,0,0,0.0
