@@ -1,4 +1,4 @@
-Gold (OG|GC) IY2U26 (2.52 DTE) vs 4374.8 (+1.1) - Open Interest
+Gold (OG|GC) IY2U26 (2.50 DTE) vs 4374.8 (+1.1) - Open Interest
 Put: 2,207  Call: 3,433  Vol: 44.99  Vol Chg: 0.00  Future Chg: +1.1
 Strike,Call,Put,Vol Settle
 3000,0,0,0.0
