@@ -148,6 +148,121 @@ def load_qs():
         return None
 
 
+# ── CME QuikStrike Vol2Vol (her trial, 2026-09-14): the userscript reads the numbers the page has
+#    ALREADY rendered (Highcharts series) every 10 min and POSTs them to /qs — no extra requests to
+#    QuikStrike/CME. The set is: Put/Call per strike (the selected view: Intraday Volume or Open
+#    Interest), "Vol" = CME's current IV per strike, "Vol Settle" = yesterday's settlement IV per
+#    strike, "Ranges" = CME's own ±1/2/3σ edges, header Vol = CME's ATM vol of the series.
+#    Normalised into quikstrike_live.json, served to the LOCAL dashboard (http://127.0.0.1:8765/)
+#    and — only when GOLD_QS_PUBLISH=1 — copied into the public site repo (licensed data: her call).
+V2V_RAW = os.path.join(MANUAL_DIR, "quikstrike_vol2vol.json")
+V2V_LIVE = os.path.join(MANUAL_DIR, "quikstrike_live.json")
+QS_PUBLISH = os.environ.get("GOLD_QS_PUBLISH", "0") == "1"
+V2V_FRESH_MIN = 45        # older than this → the dashboard/plan fall back to Barchart
+
+
+def _ranges_from(series, fut):
+    """CME draws 6 half-bands (−1σ→F, F→+1σ, −2σ→−1σ, +1σ→+2σ, −3σ→−2σ, +2σ→+3σ) as an xrange series.
+    Points are [x, y] (userscript ≤1.3: only the left edge → +3σ missing) or [x, y, x2] (1.4+)."""
+    if not series or not fut:
+        return None
+    edges = set()
+    for p in series.get("points") or []:
+        if p and p[0] is not None:
+            edges.add(round(float(p[0]), 3))
+        if p and len(p) > 2 and p[2] is not None:
+            edges.add(round(float(p[2]), 3))
+    fut = float(fut)
+    below = sorted(e for e in edges if e < fut - 0.05)[::-1]      # nearest first
+    above = sorted(e for e in edges if e > fut + 0.05)
+    if len(below) < 3 or len(above) < 2:
+        return None
+    est = []
+    if len(above) < 3:                                           # lognormal-symmetric estimate: F²/(−3σ)
+        above.append(round(fut * fut / below[2], 2))
+        est.append("+3")
+    r = {"m1": below[0], "m2": below[1], "m3": below[2], "p1": above[0], "p2": above[1], "p3": above[2]}
+    if est:
+        r["estimated"] = est
+    return r
+
+
+def normalize_v2v(payload):
+    """Raw /qs dump → the chart-ready set. None if the page had no Put/Call chart."""
+    h = payload.get("header") or {}
+    ch = None
+    for c in payload.get("charts") or []:
+        names = {s.get("name") for s in c.get("series", [])}
+        if "Put" in names and "Call" in names:
+            ch = c
+            break
+    if not ch:
+        return None
+    ser = {s.get("name"): s for s in ch.get("series", [])}
+
+    def pts(name):
+        out = {}
+        for p in (ser.get(name) or {}).get("points") or []:
+            if p and p[0] is not None and p[1] is not None:
+                out[float(p[0])] = float(p[1])
+        return out
+
+    put, call = pts("Put"), pts("Call")
+    iv_cur = sorted((k, round(v * 100, 3)) for k, v in pts("Vol").items() if 0.01 < v < 5)
+    iv_set = sorted((k, round(v * 100, 3)) for k, v in pts("Vol Settle").items() if 0.01 < v < 5)
+    strikes = sorted(set(put) | set(call))
+    exp = cme_code_expiry(h.get("code"))
+    at_ms = payload.get("at")
+    at = datetime.fromtimestamp(at_ms / 1000, TZ_BKK) if at_ms else datetime.now(TZ_BKK)
+    return {"source": "CME QuikStrike Vol2Vol", "code": h.get("code"),
+            "expiry_date": exp.isoformat() if exp else None, "view": h.get("view"),
+            "at": at.isoformat(timespec="seconds"), "future": h.get("future"), "chg": h.get("chg"),
+            "dte": h.get("dte"), "vol": h.get("vol"), "vol_chg": h.get("volChg"),
+            "put_total": h.get("put"), "call_total": h.get("call"),
+            "bars": [[k, int(call.get(k, 0)), int(put.get(k, 0))] for k in strikes],   # [strike, call, put]
+            "iv_current": iv_cur, "iv_settle": iv_set,                                 # [strike, IV %]
+            "ranges": _ranges_from(ser.get("Ranges"), h.get("future")), "page": payload.get("page")}
+
+
+def _oi_for_expiry(expiry_date):
+    """Barchart OI for the QuikStrike series (same expiry) from the last /ingest payload → [[k, call, put]]."""
+    pl = STATE.get("last_payload") or {}
+    for s in upcoming_series():
+        if s["expiry"][:10] == expiry_date:
+            rows = ((pl.get("series") or {}).get(s["code"]) or {}).get("rows") or {}
+            if rows:
+                ks = sorted(rows, key=lambda k: float(k))
+                return s["code"], [[float(k), int(_leg(rows, k, "c")[1]), int(_leg(rows, k, "p")[1])] for k in ks]
+    return None, None
+
+
+def load_v2v(max_age_min=V2V_FRESH_MIN):
+    """The normalised CME set if it is fresh enough, else None."""
+    try:
+        d = json.load(open(V2V_LIVE, encoding="utf-8"))
+        age = (datetime.now(TZ_BKK) - datetime.fromisoformat(d["at"])).total_seconds() / 60
+        return d if age <= max_age_min else None
+    except Exception:
+        return None
+
+
+def save_v2v(payload):
+    os.makedirs(MANUAL_DIR, exist_ok=True)
+    json.dump(payload, open(V2V_RAW, "w", encoding="utf-8"), ensure_ascii=False)
+    d = normalize_v2v(payload)
+    if not d:
+        return None
+    code, oi = _oi_for_expiry(d.get("expiry_date"))
+    if oi:
+        d["oi"], d["oi_source"] = oi, f"Barchart {code} (settlement OI)"
+    d["published"] = QS_PUBLISH
+    json.dump(d, open(V2V_LIVE, "w", encoding="utf-8"), ensure_ascii=False)
+    if QS_PUBLISH:
+        os.makedirs(LIVE_DIR, exist_ok=True)
+        json.dump(d, open(os.path.join(LIVE_DIR, "quikstrike.json"), "w", encoding="utf-8"), ensure_ascii=False)
+    return d
+
+
 def save_qs(payload):
     """POST /iv from the QuikStrike pricing sheet: {code, rows:[[strike, volPct],...], atm: volPct|null}."""
     if payload.get("debug"):                          # userscript could not parse the page: keep evidence
@@ -298,7 +413,10 @@ def build_files(payload):
         if qs_map:
             iv_source = "computed"
     vol, vol_src = None, None
-    if iv_source == "computed" and comp_atm:
+    v2v = load_v2v()                                  # CME's own ATM vol of THIS series (QuikStrike Vol2Vol, fresh)
+    if v2v and v2v.get("vol") and v2v.get("expiry_date") == chosen["expiry"][:10]:
+        vol, vol_src = round(float(v2v["vol"]), 2), "quikstrike_vol2vol"
+    elif iv_source == "computed" and comp_atm:
         vol, vol_src = round(float(comp_atm), 2), "series_atm_computed"     # same series, same snapshot
     elif iv_source == "quikstrike" and qs and qs.get("atm"):
         vol, vol_src = round(float(qs["atm"]), 2), "quikstrike_atm"
@@ -341,7 +459,9 @@ def build_files(payload):
               "iv_kind": ("settlement_sheet" if iv_source == "quikstrike" else "current_computed" if iv_source == "computed" else None),
               "iv_at": ((qs or {}).get("at") if iv_source == "quikstrike" else datetime.now(TZ_BKK).isoformat(timespec="seconds") if iv_source == "computed" else None),
               "iv_code": ((qs or {}).get("code") if iv_source == "quikstrike" else chosen["code"] if iv_source == "computed" else None),
-              "iv_n": len(qs_map), "iv_atm": ((qs or {}).get("atm") if iv_source == "quikstrike" else comp_atm)}
+              "iv_n": len(qs_map), "iv_atm": ((qs or {}).get("atm") if iv_source == "quikstrike" else comp_atm),
+              "v2v": ({"code": v2v.get("code"), "at": v2v.get("at"), "view": v2v.get("view"), "vol": v2v.get("vol"),
+                       "same_series": v2v.get("expiry_date") == chosen["expiry"][:10], "published": QS_PUBLISH} if v2v else None)}
     json.dump(status, open(STATUS_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     try:
         publish_live(status, texts)
@@ -452,26 +572,76 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, load_qs() or {"rows": [], "msg": "no QuikStrike IV received yet"})
         elif self.path.startswith("/status"):
             self._send(200, {"last_ingest": STATE["last_ingest"], "status": STATE["last_status"],
-                             "errors": STATE["errors"], "wanted": [s["code"] for s in upcoming_series()][:6]})
+                             "errors": STATE["errors"], "wanted": [s["code"] for s in upcoming_series()][:6],
+                             "v2v": load_v2v(10 ** 6), "qs_publish": QS_PUBLISH})
         else:
-            self._send(404, {"error": "not found"})
+            self._serve_static()
+
+    # ── local dashboard: the same website files (gold-oi-dashboard/) served from this PC, but with the
+    #    CME QuikStrike set (quikstrike_live.json) available at data/live/quikstrike.json even when it is
+    #    NOT published to the public site. Open http://127.0.0.1:8765/ ──
+    MIME = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8", ".json": "application/json; charset=utf-8",
+            ".txt": "text/plain; charset=utf-8", ".png": "image/png", ".svg": "image/svg+xml", ".ico": "image/x-icon"}
+
+    def _serve_static(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path in ("", "/"):
+            path = "/index.html"
+        if path == "/data/live/quikstrike.json":
+            fp = V2V_LIVE
+        else:
+            rel = os.path.normpath(path.lstrip("/")).replace("\\", "/")
+            if rel.startswith("..") or os.path.isabs(rel) or rel.startswith(".git"):
+                return self._send(404, {"error": "not found"})
+            fp = os.path.join(REPO_DIR, rel)
+        if not os.path.isfile(fp):
+            return self._send(404, {"error": "not found", "path": path})
+        with open(fp, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", self.MIME.get(os.path.splitext(fp)[1].lower(), "application/octet-stream"))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self):
-        if self.path.startswith("/qs"):                # QuikStrike Vol2Vol page dump (raw, for inspection first)
+        if self.path.startswith("/qs"):                # QuikStrike Vol2Vol page dump → normalised CME set
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 payload = json.loads(self.rfile.read(n).decode("utf-8"))
                 os.makedirs(MANUAL_DIR, exist_ok=True)
-                fn = os.path.join(MANUAL_DIR, "quikstrike_vol2vol.json" if payload.get("kind") == "vol2vol" else "quikstrike_vol2vol_debug.json")
-                json.dump(payload, open(fn, "w", encoding="utf-8"), ensure_ascii=False)
                 h = payload.get("header") or {}
-                if payload.get("kind") == "vol2vol":
-                    summ = "; ".join(f"{c.get('title')}: " + ", ".join(f"{s.get('name')}({s.get('n')})" for s in c.get("series", [])) for c in payload.get("charts", []))
-                    log(f"quikstrike vol2vol: {h.get('code')} {h.get('view')} fut {h.get('future')} vol {h.get('vol')} ranges {h.get('ranges')} | {summ[:400]}")
-                else:
+                if payload.get("kind") != "vol2vol":
+                    json.dump(payload, open(os.path.join(MANUAL_DIR, "quikstrike_vol2vol_debug.json"), "w", encoding="utf-8"), ensure_ascii=False)
                     log(f"quikstrike vol2vol debug: {json.dumps(payload, ensure_ascii=False)[:500]}")
-                return self._send(200, {"ok": True, "msg": "saved"})
+                    return self._send(200, {"ok": True, "msg": "debug saved"})
+                d = save_v2v(payload)
+                if not d:
+                    log(f"quikstrike vol2vol: no Put/Call chart in dump ({h.get('code')} {h.get('view')})")
+                    return self._send(200, {"ok": False, "msg": "no Put/Call chart found"})
+                rg = d.get("ranges") or {}
+                log(f"quikstrike vol2vol: {d['code']} {d['view']} fut {d['future']} vol {d['vol']} bars {len(d['bars'])} "
+                    f"ivCur {len(d['iv_current'])} ivSettle {len(d['iv_settle'])} ranges "
+                    f"{rg.get('m3')}/{rg.get('m2')}/{rg.get('m1')} | {rg.get('p1')}/{rg.get('p2')}/{rg.get('p3')}"
+                    f"{' (est ' + ','.join(rg['estimated']) + ')' if rg.get('estimated') else ''} oi {'yes' if d.get('oi') else 'no'}"
+                    f" publish {'yes' if QS_PUBLISH else 'local only'}")
+                if STATE.get("last_payload"):          # refresh the plan files/status with CME's ATM vol right away
+                    try:
+                        st, _ = build_files(STATE["last_payload"])
+                        if st:
+                            STATE["last_status"] = st
+                    except Exception as e:
+                        log(f"rebuild after /qs failed: {e}")
+                elif QS_PUBLISH and time.time() - STATE.get("last_publish", 0) >= PUBLISH_MIN * 60:
+                    STATE["last_publish"] = time.time()
+                    threading.Thread(target=_git_publish, args=(d["code"],), daemon=True).start()
+                return self._send(200, {"ok": True, "msg": f"CME set saved ({d['view']}, {len(d['bars'])} strikes)"
+                                        + (" · published" if QS_PUBLISH else " · local dashboard http://127.0.0.1:8765/")})
             except Exception as e:
+                log(f"/qs error: {e}")
                 return self._send(500, {"ok": False, "msg": str(e)})
         if self.path.startswith("/iv"):
             try:
@@ -488,6 +658,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(n).decode("utf-8"))
+            STATE["last_payload"] = payload           # kept for the CME set (OI of the QuikStrike series) + rebuilds
             status, msg = build_files(payload)
             STATE["last_ingest"] = time.time()
             STATE["warned"] = False

@@ -1,5 +1,5 @@
 /* ============================================================
-   app.js v22 — three sections only:
+   app.js v26 — three sections only:
    (1) CME-style chart: Put/Call per strike (OI or intraday volume), IV smile,
        exact futures marker, the day's tradeable SD zones as shaded bands
    (2) the OI trade plan (plan.json)
@@ -11,6 +11,7 @@ const state = {
   view: localStorage.getItem('view') || 'intraday',     // 'intraday' | 'oi' | 'both'
   data: { oi: null, intraday: null },
   status: null,                                          // data/live/status.json (bridge provenance)
+  qs: null,                                              // data/live/quikstrike.json (CME QuikStrike Vol2Vol set)
   sdl: null,                                             // sd_ladder.json (locked from her sheet)
   plan: null,
   theme: localStorage.getItem('theme') || 'light',
@@ -106,7 +107,45 @@ function pchipPath(pts, xf, yf) {
   return path;
 }
 
+// ── CME QuikStrike Vol2Vol set → the same row shape chartPanel draws (bars + IV lines + CME ranges) ──
+const QS_FRESH_MIN = 45;
+function qsAgeMin() {
+  const q = state.qs;
+  if (!q || !q.at) return null;
+  const t = Date.parse(q.at);
+  return isNaN(t) ? null : Math.round((Date.now() - t) / 60000);
+}
+function qsFresh() { const a = qsAgeMin(); return a != null && a <= QS_FRESH_MIN; }
+function qsData(kind) {
+  const q = state.qs;
+  if (!q) return null;
+  const view = q.view || '';
+  let src = null, from = '';
+  if (kind === 'intraday') {
+    if (!/intraday/i.test(view)) return null;              // the page is on another view → Barchart intraday
+    src = q.bars; from = 'CME QuikStrike (Intraday Volume)';
+  } else {
+    if (q.oi && q.oi.length) { src = q.oi; from = q.oi_source || 'Barchart (settlement OI)'; }
+    else if (/open interest/i.test(view)) { src = q.bars; from = 'CME QuikStrike (Open Interest)'; }
+    else return null;
+  }
+  const bars = new Map(src.map((r) => [Number(r[0]), [Number(r[1]) || 0, Number(r[2]) || 0]]));
+  const cur = new Map((q.iv_current || []).map((r) => [Number(r[0]), Number(r[1]) / 100]));
+  const set = new Map((q.iv_settle || []).map((r) => [Number(r[0]), Number(r[1]) / 100]));
+  const strikes = [...new Set([...bars.keys(), ...cur.keys(), ...set.keys()])].sort((a, b) => a - b);
+  const rows = strikes.map((k) => { const b = bars.get(k) || [0, 0]; return { strike: k, call: b[0], put: b[1], iv: cur.get(k) || 0, ivs: set.get(k) || 0 }; });
+  let totalPut = 0, totalCall = 0;
+  for (const b of bars.values()) { totalCall += b[0]; totalPut += b[1]; }
+  if (kind === 'intraday' && q.put_total != null) { totalPut = q.put_total; totalCall = q.call_total; }
+  return { contract: q.code, dte: Number(q.dte) || 0, future: Number(q.future) || 0, futureChg: Number(q.chg) || 0,
+           kind: kind === 'oi' ? 'Open Interest' : 'Intraday Volume', totalPut, totalCall, iv: Number(q.vol) || 0,
+           rows, ranges: q.ranges || null, qs: true, from, ivN: cur.size, ivsN: set.size };
+}
+function chartData(kind) { return (qsFresh() && qsData(kind)) || state.data[kind]; }
+
 function ivKindText() {
+  const pk = state.view === 'both' ? 'intraday' : state.view;          // the panel the legend describes
+  if (qsFresh() && qsData(pk) && (state.qs.iv_current || []).length >= 3) return 'Current IV Smile (CME)';
   const s = state.status;
   if (!s) return null;
   if (s.iv_source === 'quikstrike') return s.iv_kind === 'settlement' ? 'Settlement IV Smile' : 'IV Smile (QuikStrike Pricing Sheet)';
@@ -117,6 +156,14 @@ function ivLabel() {
   const s = state.status;
   const kind = ivKindText();
   if (!kind) return 'IV unavailable — ไม่มี IV ราย strike ที่ตรวจสอบได้ (ไม่สร้างเส้นแทน)';
+  if (qsFresh() && kind.endsWith('(CME)')) {
+    const q = state.qs;
+    let when = '';
+    try { when = new Date(q.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
+    return `Current IV Smile = เส้น "Vol" ของ CME QuikStrike (${esc(q.code)}) ณ ${when} · ${(q.iv_current || []).length} strikes` +
+      ((q.iv_settle || []).length >= 3 ? ` · Settlement IV Smile = เส้น "Vol Settle" (settle วันก่อน) · ${q.iv_settle.length} strikes` : '') +
+      ' · เส้นระหว่างจุด = Interpolated (PCHIP) ไม่ลากเลยช่วงข้อมูล';
+  }
   let when = '';
   try { when = new Date(s.iv_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
   const how = s.iv_source === 'computed'
@@ -127,6 +174,7 @@ function ivLabel() {
 
 function volSourceLabel(src) {
   if (!src) return '';
+  if (src === 'quikstrike_vol2vol') return 'ATM Vol ของ series นี้ · CME QuikStrike Vol2Vol';
   if (src === 'series_atm_computed') return 'ATM IV ของ series นี้ · คำนวณจาก bid/ask';
   if (src === 'quikstrike_atm') return 'ATM IV ของ series นี้ · QuikStrike';
   if (src === 'sd_lock') return 'ชีตครูวันนี้ (อาจเป็นคนละ series)';
@@ -136,15 +184,18 @@ function volSourceLabel(src) {
 
 function chartPanel(d, kind) {
   const rows = d.rows || [];
-  const F = (state.status && state.status.future) || d.future || 0;
+  const F = d.qs ? (d.future || 0) : ((state.status && state.status.future) || d.future || 0);
   // expected-range σ of THIS series (CME Vol2Vol style): F × ATM IV × √(DTE/365) — the header Vol is the
-  // series' own ATM IV (computed from bid/ask or QuikStrike), never the sheet Vol of another series
+  // series' own ATM IV (computed from bid/ask or QuikStrike), never the sheet Vol of another series.
+  // With the CME set the bands are CME's own "Ranges" edges (d.ranges) — no formula of ours.
   const ivPct = Number(d.iv) || 0, dte = Number(d.dte) || 0;
   const sig = (F && ivPct && dte) ? F * (ivPct / 100) * Math.sqrt(dte / 365) : 0;
-  const half = Math.max(sig ? 3.3 * sig : 0, 120);
+  const rg = d.ranges && d.ranges.m3 && d.ranges.p3 ? d.ranges : null;
+  const half = rg ? Math.max(1.12 * Math.max(F - rg.m3, rg.p3 - F), 60) : Math.max(sig ? 3.3 * sig : 0, 120);
   const xmin = F - half, xmax = F + half;
   const vis = rows.filter((r) => r.strike >= xmin && r.strike <= xmax);
-  const title = `${esc(d.contract || '')} ${kind === 'oi' ? 'Open Interest' : 'Intraday Volume'}`;
+  const title = `${esc(d.contract || '')} ${kind === 'oi' ? 'Open Interest' : 'Intraday Volume'}` +
+    (d.qs ? ` <span class="src-tag">CME</span>` : '');
   if (!F || !vis.length) {
     return `<div class="chart-panel"><div class="chart-head"><span class="chart-title">${title}</span></div><div class="chart-empty">ไม่มีข้อมูลในช่วงราคา</div></div>`;
   }
@@ -163,16 +214,17 @@ function chartPanel(d, kind) {
   let svg = '';
   // ±1σ / ±2σ / ±3σ expected-range bands of this series around the futures price (grey, CME-style);
   // she reads the zones herself — they never drive the plan's orders
-  if (sig) {
+  const edge = (n) => rg ? rg[(n < 0 ? 'm' : 'p') + Math.abs(n)] : F + n * sig;   // CME ranges or our σ
+  if (sig || rg) {
     const clip = (a, b) => [Math.max(xmin, Math.min(a, b)), Math.min(xmax, Math.max(a, b))];
     const shade = [[3, 'band-3'], [2, 'band-2'], [1, 'band-1']];
     for (const [n, cls] of shade) {
-      const [a, b] = clip(F - n * sig, F + n * sig);
+      const [a, b] = clip(edge(-n), edge(n));
       if (b > a) svg += `<rect class="${cls}" x="${x(a).toFixed(1)}" y="${MT}" width="${(x(b) - x(a)).toFixed(1)}" height="${ph}"/>`;
     }
     for (const n of [-3, -2, -1, 1, 2, 3]) {
-      const v = F + n * sig;
-      if (v < xmin || v > xmax) continue;
+      const v = edge(n);
+      if (!(v >= xmin && v <= xmax)) continue;
       svg += `<line class="band-edge" x1="${x(v).toFixed(1)}" y1="${MT}" x2="${x(v).toFixed(1)}" y2="${MT + ph}"/>` +
         `<text class="band-lbl" x="${x(v).toFixed(1)}" y="${MT - 4}" text-anchor="middle">${n > 0 ? '+' : ''}${n}σ ${fmt.px0(toUnit(v))}</text>`;
     }
@@ -202,18 +254,27 @@ function chartPanel(d, kind) {
   // PCHIP-interpolated (shape-preserving: no overshoot, no forced U, no extrapolation beyond the
   // first/last strike; gaps wider than 3x the median strike gap are left open). Barchart's
   // last-trade IVs never qualify → "IV unavailable" instead of a substitute curve.
-  const ivOk = !!(state.status && (state.status.iv_source === 'quikstrike' || state.status.iv_source === 'computed'));
+  // With the CME set (d.qs): "Vol" = Current IV (pink dashed) and "Vol Settle" = Settlement IV (grey
+  // dotted), both CME's own per-strike numbers for this series, sharing one IV axis.
+  const ivOk = d.qs ? true : !!(state.status && (state.status.iv_source === 'quikstrike' || state.status.iv_source === 'computed'));
   const ivp = ivOk ? vis.filter((r) => r.iv >= 0.02 && r.iv <= 2).sort((a, b) => a.strike - b.strike) : [];
+  const ivsP = d.qs ? vis.filter((r) => r.ivs >= 0.02 && r.ivs <= 2).map((r) => ({ strike: r.strike, iv: r.ivs })).sort((a, b) => a.strike - b.strike) : [];
   if (ivp.length >= 3) {
-    const ivs = ivp.map((r) => r.iv);
+    const ivs = ivp.map((r) => r.iv).concat(ivsP.map((r) => r.iv));
     let lo = Math.min(...ivs), hi = Math.max(...ivs);
     if (hi - lo < 0.02) { lo -= 0.01; hi += 0.01; }
     const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
     const yiv = (v) => MT + ph - (v - lo) / (hi - lo) * ph;
+    for (const seg of splitGaps(ivsP)) {
+      if (seg.length >= 2) svg += `<path class="iv-settle" d="${pchipPath(seg, (s) => x(s), (v) => yiv(v))}"/>`;
+    }
     for (const seg of splitGaps(ivp)) {
       if (seg.length >= 2) svg += `<path class="iv-line" d="${pchipPath(seg, (s) => x(s), (v) => yiv(v))}"/>`;
     }
-    if (state.showIvPts) svg += ivp.map((r) => `<circle class="iv-dot" cx="${x(r.strike).toFixed(1)}" cy="${yiv(r.iv).toFixed(1)}" r="2.4"/>`).join('');
+    if (state.showIvPts) {
+      svg += ivsP.map((r) => `<circle class="iv-dot settle" cx="${x(r.strike).toFixed(1)}" cy="${yiv(r.iv).toFixed(1)}" r="2"/>`).join('');
+      svg += ivp.map((r) => `<circle class="iv-dot" cx="${x(r.strike).toFixed(1)}" cy="${yiv(r.iv).toFixed(1)}" r="2.4"/>`).join('');
+    }
     for (let i = 0; i <= 4; i++) {
       const v = lo + (hi - lo) * i / 4;
       svg += `<text class="tick r" x="${ML + pw + 6}" y="${(yiv(v) + 4).toFixed(1)}">${(v * 100).toFixed(1)}</text>`;
@@ -227,9 +288,9 @@ function chartPanel(d, kind) {
   svg += `<line class="hover-line" id="hl-${kind}" x1="0" y1="${MT}" x2="0" y2="${MT + ph}"/>`;
 
   chartGeom[kind] = { xmin, xmax, ML, pw, W, rows: vis, F };
-  const vol = (state.status && state.status.vol) || d.iv;
-  const volSrc = volSourceLabel(state.status && state.status.vol_source);
-  const ivAtm = ivOk && state.status.iv_atm != null ? ` &nbsp; <span class="st-vol">IV ATM: ${Number(state.status.iv_atm).toFixed(2)}</span> <span style="color:var(--fg2)">(${state.status.iv_source === 'computed' ? 'computed' : 'QuikStrike'})</span>` : '';
+  const vol = d.qs ? d.iv : ((state.status && state.status.vol) || d.iv);
+  const volSrc = d.qs ? 'CME QuikStrike · ATM Vol ของ series นี้' : volSourceLabel(state.status && state.status.vol_source);
+  const ivAtm = !d.qs && ivOk && state.status.iv_atm != null ? ` &nbsp; <span class="st-vol">IV ATM: ${Number(state.status.iv_atm).toFixed(2)}</span> <span style="color:var(--fg2)">(${state.status.iv_source === 'computed' ? 'computed' : 'QuikStrike'})</span>` : '';
   const stats = `<span class="st-put">Put: ${fmt.int(d.totalPut)}</span> &nbsp; <span class="st-call">Call: ${fmt.int(d.totalCall)}</span> &nbsp; ` +
     `<span class="st-vol">Vol: ${vol ? Number(vol).toFixed(2) : '—'}</span>${volSrc ? ` <span style="color:var(--fg2)">(${esc(volSrc)})</span>` : ''}${ivAtm}`;
   return `<div class="chart-panel"><div class="chart-head"><span class="chart-title">${title}</span><span class="chart-stats">${stats}</span></div>` +
@@ -240,7 +301,7 @@ function renderChart() {
   const el = $('chart-panels');
   const kinds = state.view === 'both' ? ['oi', 'intraday'] : [state.view];
   const html = kinds.map((k) => {
-    const d = state.data[k];
+    const d = chartData(k);
     return d ? chartPanel(d, k) : `<div class="chart-panel"><div class="chart-empty">ยังไม่มีข้อมูล ${k === 'oi' ? 'Open Interest' : 'Intraday Volume'}</div></div>`;
   }).join('');
   el.innerHTML = html;
@@ -248,12 +309,16 @@ function renderChart() {
   const lg = $('lg-iv');
   const kindTxt = ivKindText();
   if (lg) lg.textContent = kindTxt ? `┄ ${kindTxt}` : '┄ IV unavailable';
+  const lgs = $('lg-ivs');
+  if (lgs) lgs.style.display = (qsFresh() && state.qs && (state.qs.iv_settle || []).length >= 3) ? '' : 'none';
+  const lsd = $('lg-sd');
+  if (lsd) lsd.textContent = qsFresh() && state.qs && state.qs.ranges ? '▮ ±1σ ▮ ±2σ ▮ ±3σ (CME Ranges)' : '▮ ±1σ ▮ ±2σ ▮ ±3σ (series)';
   renderChartFoot();
-  const d = state.data.oi || state.data.intraday;
+  const d = chartData(state.view === 'both' ? 'intraday' : state.view) || chartData('oi') || chartData('intraday');
   if (d) {
     const pcr = d.totalCall ? (d.totalPut / d.totalCall) : 0;
-    const F = (state.status && state.status.future) || d.future;
-    $('contract-line').textContent = `${d.contract || '—'} · fut ${fmt.px(F)}${state.basis ? ` · CFD ≈ ${fmt.px(F - state.basis)}` : ''} · P/C OI ${pcr ? pcr.toFixed(2) : '—'}`;
+    const F = d.qs ? d.future : ((state.status && state.status.future) || d.future);
+    $('contract-line').textContent = `${d.contract || '—'} · fut ${fmt.px(F)}${state.basis ? ` · CFD ≈ ${fmt.px(F - state.basis)}` : ''} · P/C ${d.kind === 'Open Interest' ? 'OI' : 'vol'} ${pcr ? pcr.toFixed(2) : '—'}`;
   }
 }
 
@@ -275,6 +340,7 @@ function attachHover(svg) {
     tip.innerHTML = `<b>${fmt.px0(toUnit(best.strike))}</b> <span style="color:var(--fg2)">(${unitName()}${state.priceMode === 'cfd' ? ` · fut ${best.strike}` : ''})</span><br>` +
       `<span class="tc">Call ${fmt.int(best.call)}</span> · <span class="tp">Put ${fmt.int(best.put)}</span>` +
       (best.iv > 0 ? ` · IV ${(best.iv * 100).toFixed(1)}%` : '') +
+      (best.ivs > 0 ? ` <span style="color:var(--fg2)">(settle ${(best.ivs * 100).toFixed(1)}%)</span>` : '') +
       (g.F ? `<br><span style="color:var(--fg2)">${best.strike > g.F ? '+' : ''}${(best.strike - g.F).toFixed(1)} จาก future</span>` : '');
     const tw = tip.offsetWidth || 160, th = tip.offsetHeight || 50;
     let tx = ev.clientX + 14, ty = ev.clientY - th - 10;
@@ -294,6 +360,24 @@ function renderChartFoot() {
   const el = $('chart-foot');
   const s = state.status;
   const parts = [];
+  const q = state.qs;
+  if (qsFresh() && q) {
+    // the chart is drawn from the CME QuikStrike Vol2Vol set — say exactly what came from where
+    const age = qsAgeMin();
+    let asof = '';
+    try { asof = new Date(q.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
+    parts.push(`<b>กราฟ = ชุดข้อมูล CME QuikStrike Vol2Vol</b> (${esc(q.code)} · หน้า "${esc(q.view || '')}") ณ ${asof} (อายุ ${age} นาที)`);
+    parts.push(`fut ${fmt.px(q.future)} (${Number(q.chg) >= 0 ? '+' : ''}${q.chg}) · DTE ${Number(q.dte).toFixed(2)} · Vol ${Number(q.vol).toFixed(2)} (ATM Vol ของ CME) · Put ${fmt.int(q.put_total)} / Call ${fmt.int(q.call_total)}`);
+    if (/intraday/i.test(q.view || '')) parts.push(`แท่ง Intraday = CME (${q.bars.length} strikes ที่หน้า CME แสดง) · แท่ง OI = ${q.oi ? esc(q.oi_source || 'Barchart') : 'Barchart (series ที่ bridge เลือก)'}`);
+    else parts.push(`แท่ง OI = CME (${q.bars.length} strikes) · แท่ง Intraday = Barchart`);
+    if (q.ranges) parts.push(`แถบเทา = Ranges ของ CME: −3σ ${fmt.px(toUnit(q.ranges.m3))} · −2σ ${fmt.px(toUnit(q.ranges.m2))} · −1σ ${fmt.px(toUnit(q.ranges.m1))} · +1σ ${fmt.px(toUnit(q.ranges.p1))} · +2σ ${fmt.px(toUnit(q.ranges.p2))} · +3σ ${fmt.px(toUnit(q.ranges.p3))}${q.ranges.estimated ? ` <span class="warn">(+3σ ประมาณจากความสมมาตร — อัปเดต userscript 1.4 เพื่อค่าจริง)</span>` : ''}`);
+    parts.push(`<span style="color:var(--iv-line)">${ivLabel()}</span>`);
+    parts.push(`แกนราคา: ${unitName()}${state.priceMode === 'cfd' ? ` (basis −${fmt.px(state.basis)})` : ''} · ตัวเลข CME ดีเลย์ตามหน้า QuikStrike · แผนเทรดยังใช้ series ที่ bridge เลือก (${esc((s && s.series) || '—')})`);
+    if (q.published === false) parts.push('<span style="color:var(--fg2)">ชุด CME แสดงเฉพาะ dashboard ในเครื่อง (ไม่เผยแพร่ขึ้นเว็บสาธารณะ)</span>');
+    el.innerHTML = parts.join(' · ');
+    return;
+  }
+  if (q && !qsFresh()) parts.push(`<span class="warn">ชุด CME QuikStrike เก่า (${qsAgeMin()} นาที — แท็บ QuikStrike ปิดอยู่?) → ใช้ Barchart แทน</span>`);
   if (s) {
     let ageMin = null, asof = '';
     try { const t = Date.parse(s.at); ageMin = Math.round((Date.now() - t) / 60000); asof = new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
@@ -503,15 +587,17 @@ async function loadPlan() {
 async function load() {
   setStatus('กำลังโหลด…');
   try {
-    const [oiR, inR, st] = await Promise.all([
+    const [oiR, inR, st, qs] = await Promise.all([
       fetchText(DATA_SOURCE.oi, DATA_FALLBACK.oi),
       fetchText(DATA_SOURCE.intraday, DATA_FALLBACK.intraday),
       fetchStatus(),
+      fetchQuikStrike(),
     ]);
     state.data.oi = parseVol2Vol(oiR.text);
     state.data.intraday = parseVol2Vol(inR.text);
     state.fallback = oiR.fb || inR.fb;
     state.status = st;
+    state.qs = qs;
     const now = new Date().toLocaleTimeString('th-TH');
     if (state.fallback) setStatus('⚠ ใช้ไฟล์สำรองเก่า — bridge ยังไม่ส่งข้อมูลสด · ' + now, 'err');
     else setStatus('อัปเดตล่าสุด ' + now, 'live');

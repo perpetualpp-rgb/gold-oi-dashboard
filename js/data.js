@@ -85,3 +85,18 @@ function parseVol2Vol(text) {
   meta.rows = rows;
   return meta;
 }
+
+// CME QuikStrike Vol2Vol set (her trial, 2026-09-14) — written by the bridge as data/live/quikstrike.json.
+// Present on the LOCAL dashboard (http://127.0.0.1:8765/) always; on the public site only when the
+// bridge runs with GOLD_QS_PUBLISH=1. Missing/404 → the chart uses the Barchart files above.
+//   { code, expiry_date, view, at, future, chg, dte, vol, put_total, call_total,
+//     bars: [[strike, call, put]], iv_current: [[strike, IV%]], iv_settle: [[strike, IV%]],
+//     ranges: {m3,m2,m1,p1,p2,p3, estimated?}, oi?: [[strike, call, put]], oi_source? }
+async function fetchQuikStrike() {
+  try {
+    const res = await fetch('data/live/quikstrike.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return null;
+    const q = await res.json();
+    return (q && q.code && Array.isArray(q.bars)) ? q : null;
+  } catch (e) { return null; }
+}

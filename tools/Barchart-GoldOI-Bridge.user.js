@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Barchart → GoldOI Bridge
 // @namespace    goldoi.bridge
-// @version      1.3.0
+// @version      1.4.0
 // @updateURL    https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @description  ส่งข้อมูล OI/Volume/ราคา (Barchart), Vol2Vol (QuikStrike) และ IV ราย strike (Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Vol2Vol ค้างไว้
@@ -150,6 +150,7 @@
       code: h ? h[1] : null, dte: h ? +h[2] : null, future: h ? +h[3].replace(/,/g, '') : null, chg: h ? +h[4] : null, view: h ? h[5] : null,
       put: s ? +s[1].replace(/,/g, '') : null, call: s ? +s[2].replace(/,/g, '') : null, vol: s ? +s[3] : null, volChg: s ? +s[4] : null, futChg: s ? +s[5] : null,
       ranges: r ? r.slice(1, 7).map(Number) : null,
+      rangesText: (t.match(/Ranges?[^\n]{0,140}/) || [])[0] || null,
     };
   }
   function vol2volCharts() {
@@ -165,7 +166,7 @@
         series: ch.series.map((s) => ({
           name: s.name, type: s.type, yAxis: s.yAxis && s.yAxis.options && s.yAxis.options.index, visible: s.visible,
           n: (s.data || []).length,
-          points: (s.data || []).slice(0, 400).map((p) => [p.category != null ? p.category : p.x, p.y]),
+          points: (s.data || []).slice(0, 400).map((p) => (p.x2 != null ? [p.x, p.y, p.x2] : [p.category != null ? p.category : p.x, p.y])),
         })),
       });
     }
@@ -183,7 +184,27 @@
     }
     const res = await gm('POST', BRIDGE + '/qs', JSON.stringify({ kind: 'vol2vol', page: location.href, at: Date.now(), header: hdr, charts }));
     show(`QuikStrike Vol2Vol ✓ ${hdr.code || '?'} ${hdr.view || ''} · fut ${hdr.future} · Vol ${hdr.vol} · charts ${charts.length} · ${new Date().toLocaleTimeString('th-TH')}${res.msg ? ' · ' + res.msg : ''}`, true);
+    maybeRefresh(hdr);
     return true;
+  }
+  // Safety net only: the Vol2Vol page normally refreshes itself (fut 4277.7 → 4281 between 20:58 and
+  // 21:08 on 2026-09-14). If the header has NOT changed for 2 cycles during trading hours, press the
+  // page's own Refresh control if there is one, else reload the tab — at most once per AUTO_RELOAD_MIN.
+  // Worst case ≤3 page loads an hour, less than a person pressing F5; AUTO_RELOAD_MIN = 0 switches it off.
+  const AUTO_RELOAD_MIN = 20;
+  let lastSig = null, sameCount = 0, lastReload = 0;
+  function maybeRefresh(hdr) {
+    if (!AUTO_RELOAD_MIN) return;
+    const sig = [hdr.code, hdr.future, hdr.vol, hdr.put, hdr.call].join('|');
+    if (sig === lastSig) sameCount += 1; else { lastSig = sig; sameCount = 0; }
+    const now = new Date(), wd = now.getDay(), hr = now.getHours();
+    const trading = wd >= 1 && wd <= 5 && !(hr === 5);           // Mon–Fri, skip the 05:00 ICT maintenance hour
+    if (sameCount < 2 || !trading || Date.now() - lastReload < AUTO_RELOAD_MIN * 60000) return;
+    lastReload = Date.now(); sameCount = 0;
+    const btn = [...document.querySelectorAll('input[type=submit],input[type=button],button,a')]
+      .find((el) => /refresh/i.test((el.id || '') + ' ' + (el.title || '') + ' ' + (el.value || '') + ' ' + txt(el)));
+    if (btn) { show('QuikStrike: กด Refresh ของหน้าเว็บ (ข้อมูลไม่เปลี่ยน 20 นาที)'); btn.click(); }
+    else { show('QuikStrike: โหลดหน้าใหม่ (ข้อมูลไม่เปลี่ยน 20 นาที)'); setTimeout(() => location.reload(), 1500); }
   }
 
   async function cycleQuikStrike() {
