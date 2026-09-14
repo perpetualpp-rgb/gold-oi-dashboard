@@ -1,15 +1,17 @@
 // ==UserScript==
 // @name         Barchart → GoldOI Bridge
 // @namespace    goldoi.bridge
-// @version      1.2.0
+// @version      1.3.0
 // @updateURL    https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
-// @description  ส่งข้อมูล OI/Volume/ราคา (Barchart) และ IV ราย strike (QuikStrike Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Pricing Sheet ค้างไว้
+// @description  ส่งข้อมูล OI/Volume/ราคา (Barchart), Vol2Vol (QuikStrike) และ IV ราย strike (Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Vol2Vol ค้างไว้
 // @author       GoldOI
 // @match        https://www.barchart.com/*
 // @match        https://cmegroup-sso.quikstrike.net/*
+// @match        https://users.quikstrike.net/*
 // @match        https://www.cmegroup.com/tools-information/quikstrike/*
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      127.0.0.1
 // @run-at       document-idle
 // ==/UserScript==
@@ -136,7 +138,56 @@
     rows.sort((a, b) => a[0] - b[0]);
     return { rows, atm, heads };
   }
+  // ── QuikStrike Vol2Vol page (trial/paid): read the chart's own numbers (Intraday volume per strike,
+  //    Vol + Vol Settle curves, ranges) straight from the page, plus the header line ──
+  const W = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+  function vol2volHeader() {
+    const t = txt(document.body);
+    const h = t.match(/Gold\s*\(OG\|GC\)\s*(\S+)\s*\(([\d.]+)\s*DTE\)\s*vs\s*([\d,.]+)\s*\(([-+\d.]+)\)\s*-\s*(Intraday Volume|Open Interest Change|Open Interest|EOD Volume)/);
+    const s = t.match(/Put:\s*([\d,]+)\s*Call:\s*([\d,]+)\s*Vol:\s*([\d.]+)\s*Vol Chg:\s*([-+\d.]+)\s*Future Chg:\s*([-+\d.]+)/);
+    const r = t.match(/Ranges:\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+    return {
+      code: h ? h[1] : null, dte: h ? +h[2] : null, future: h ? +h[3].replace(/,/g, '') : null, chg: h ? +h[4] : null, view: h ? h[5] : null,
+      put: s ? +s[1].replace(/,/g, '') : null, call: s ? +s[2].replace(/,/g, '') : null, vol: s ? +s[3] : null, volChg: s ? +s[4] : null, futChg: s ? +s[5] : null,
+      ranges: r ? r.slice(1, 7).map(Number) : null,
+    };
+  }
+  function vol2volCharts() {
+    const H = W.Highcharts;
+    if (!H || !H.charts) return null;
+    const out = [];
+    for (const ch of H.charts) {
+      if (!ch || !ch.series) continue;
+      out.push({
+        title: ch.title && ch.title.textStr, renderTo: ch.renderTo && ch.renderTo.id,
+        xcats: ch.xAxis && ch.xAxis[0] && ch.xAxis[0].categories ? ch.xAxis[0].categories.slice(0, 400) : null,
+        yaxes: (ch.yAxis || []).map((a) => (a.axisTitle && a.axisTitle.textStr) || (a.options && a.options.title && a.options.title.text) || ''),
+        series: ch.series.map((s) => ({
+          name: s.name, type: s.type, yAxis: s.yAxis && s.yAxis.options && s.yAxis.options.index, visible: s.visible,
+          n: (s.data || []).length,
+          points: (s.data || []).slice(0, 400).map((p) => [p.category != null ? p.category : p.x, p.y]),
+        })),
+      });
+    }
+    return out;
+  }
+  async function cycleVol2Vol() {
+    const hdr = vol2volHeader();
+    const charts = vol2volCharts();
+    if (!charts || !charts.length) {
+      const keys = Object.keys(W).filter((k) => /chart|highchart|kendo|dojo|plot|echart|d3|amchart|canvasjs/i.test(k)).slice(0, 40);
+      await gm('POST', BRIDGE + '/qs', JSON.stringify({ kind: 'vol2vol_debug', page: location.href, header: hdr, libs: keys,
+        svg: document.querySelectorAll('svg').length, canvas: document.querySelectorAll('canvas').length, tables: document.querySelectorAll('table').length }));
+      show(`QuikStrike: ส่งโครงสร้างหน้าให้ bridge แล้ว (ยังไม่พบ chart lib) · ${hdr.code || '?'} ${hdr.view || ''}`, false);
+      return true;
+    }
+    const res = await gm('POST', BRIDGE + '/qs', JSON.stringify({ kind: 'vol2vol', page: location.href, at: Date.now(), header: hdr, charts }));
+    show(`QuikStrike Vol2Vol ✓ ${hdr.code || '?'} ${hdr.view || ''} · fut ${hdr.future} · Vol ${hdr.vol} · charts ${charts.length} · ${new Date().toLocaleTimeString('th-TH')}${res.msg ? ' · ' + res.msg : ''}`, true);
+    return true;
+  }
+
   async function cycleQuikStrike() {
+    if (/QuikStrikeView|pid=40/i.test(location.href) && !findSheetTable()) { await cycleVol2Vol(); return; }
     const table = findSheetTable();
     if (!table) {
       show('QuikStrike: ยังไม่พบตาราง Pricing Sheet บนหน้านี้ — เปิดหน้า Pricing Sheet ค้างไว้', false);

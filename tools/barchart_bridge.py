@@ -457,6 +457,22 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path.startswith("/qs"):                # QuikStrike Vol2Vol page dump (raw, for inspection first)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(n).decode("utf-8"))
+                os.makedirs(MANUAL_DIR, exist_ok=True)
+                fn = os.path.join(MANUAL_DIR, "quikstrike_vol2vol.json" if payload.get("kind") == "vol2vol" else "quikstrike_vol2vol_debug.json")
+                json.dump(payload, open(fn, "w", encoding="utf-8"), ensure_ascii=False)
+                h = payload.get("header") or {}
+                if payload.get("kind") == "vol2vol":
+                    summ = "; ".join(f"{c.get('title')}: " + ", ".join(f"{s.get('name')}({s.get('n')})" for s in c.get("series", [])) for c in payload.get("charts", []))
+                    log(f"quikstrike vol2vol: {h.get('code')} {h.get('view')} fut {h.get('future')} vol {h.get('vol')} ranges {h.get('ranges')} | {summ[:400]}")
+                else:
+                    log(f"quikstrike vol2vol debug: {json.dumps(payload, ensure_ascii=False)[:500]}")
+                return self._send(200, {"ok": True, "msg": "saved"})
+            except Exception as e:
+                return self._send(500, {"ok": False, "msg": str(e)})
         if self.path.startswith("/iv"):
             try:
                 n = int(self.headers.get("Content-Length") or 0)
