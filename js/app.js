@@ -361,8 +361,10 @@ function renderChartFoot() {
   const s = state.status;
   const parts = [];
   const q = state.qs;
-  if (qsFresh() && q) {
-    // the chart is drawn from the CME QuikStrike Vol2Vol set — say exactly what came from where
+  const kindsShown = state.view === 'both' ? ['oi', 'intraday'] : [state.view];
+  const usingQs = kindsShown.some((k) => { const d = chartData(k); return !!(d && d.qs); });
+  if (usingQs && q) {
+    // a visible panel is drawn from the CME QuikStrike Vol2Vol set — say exactly what came from where
     const age = qsAgeMin();
     let asof = '';
     try { asof = new Date(q.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
@@ -378,6 +380,7 @@ function renderChartFoot() {
     return;
   }
   if (q && !qsFresh()) parts.push(`<span class="warn">ชุด CME QuikStrike เก่า (${qsAgeMin()} นาที — แท็บ QuikStrike ปิดอยู่?) → ใช้ Barchart แทน</span>`);
+  else if (q && qsFresh()) parts.push(`ชุด CME QuikStrike (${esc(q.code)} · หน้า "${esc(q.view || '')}") แสดงที่แท็บ ${/intraday/i.test(q.view || '') ? 'Intraday' : 'OI'} — แท็บนี้ใช้ Barchart`);
   if (s) {
     let ageMin = null, asof = '';
     try { const t = Date.parse(s.at); ageMin = Math.round((Date.now() - t) / 60000); asof = new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
