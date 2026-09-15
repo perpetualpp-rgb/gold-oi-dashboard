@@ -1,5 +1,5 @@
 /* ============================================================
-   app.js v26 — three sections only:
+   app.js v27 — three sections only:
    (1) CME-style chart: Put/Call per strike (OI or intraday volume), IV smile,
        exact futures marker, the day's tradeable SD zones as shaded bands
    (2) the OI trade plan (plan.json)
@@ -141,11 +141,21 @@ function qsData(kind) {
            kind: kind === 'oi' ? 'Open Interest' : 'Intraday Volume', totalPut, totalCall, iv: Number(q.vol) || 0,
            rows, ranges: q.ranges || null, qs: true, from, ivN: cur.size, ivsN: set.size };
 }
-function chartData(kind) { return (qsFresh() && qsData(kind)) || state.data[kind]; }
+// the CME page may sit on another expiry (2026-09-15 it opened on OG3U6 = Friday, while the plan trades the
+// nearest series I0DU26 = Tuesday). Her σ zones must be the plan's series, so the CME set drives the chart
+// only when its expiry equals the bridge's chosen series; otherwise Barchart for the plan's series + a note.
+function qsSameSeries() {
+  const q = state.qs, s = state.status;
+  if (!q || !q.expiry_date) return false;
+  if (!s || !s.expiry) return true;                       // no bridge status → nothing to compare against
+  return String(s.expiry).slice(0, 10) === String(q.expiry_date).slice(0, 10);
+}
+function qsUsable() { return qsFresh() && qsSameSeries(); }
+function chartData(kind) { return (qsUsable() && qsData(kind)) || state.data[kind]; }
 
 function ivKindText() {
   const pk = state.view === 'both' ? 'intraday' : state.view;          // the panel the legend describes
-  if (qsFresh() && qsData(pk) && (state.qs.iv_current || []).length >= 3) return 'Current IV Smile (CME)';
+  if (qsUsable() && qsData(pk) && (state.qs.iv_current || []).length >= 3) return 'Current IV Smile (CME)';
   const s = state.status;
   if (!s) return null;
   if (s.iv_source === 'quikstrike') return s.iv_kind === 'settlement' ? 'Settlement IV Smile' : 'IV Smile (QuikStrike Pricing Sheet)';
@@ -156,7 +166,7 @@ function ivLabel() {
   const s = state.status;
   const kind = ivKindText();
   if (!kind) return 'IV unavailable — ไม่มี IV ราย strike ที่ตรวจสอบได้ (ไม่สร้างเส้นแทน)';
-  if (qsFresh() && kind.endsWith('(CME)')) {
+  if (qsUsable() && kind.endsWith('(CME)')) {
     const q = state.qs;
     let when = '';
     try { when = new Date(q.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
@@ -191,7 +201,12 @@ function chartPanel(d, kind) {
   const ivPct = Number(d.iv) || 0, dte = Number(d.dte) || 0;
   const sig = (F && ivPct && dte) ? F * (ivPct / 100) * Math.sqrt(dte / 365) : 0;
   const rg = d.ranges && d.ranges.m3 && d.ranges.p3 ? d.ranges : null;
-  const half = rg ? Math.max(1.12 * Math.max(F - rg.m3, rg.p3 - F), 60) : Math.max(sig ? 3.3 * sig : 0, 120);
+  let half;
+  if (rg) {
+    const s1 = (rg.p1 - rg.m1) / 2;
+    const withData = rows.filter((r) => (r.call || 0) + (r.put || 0) > 0).map((r) => Math.abs(r.strike - F));
+    half = Math.max(2.3 * s1, withData.length ? Math.max(...withData) + 10 : 0, 60);
+  } else half = Math.max(sig ? 3.3 * sig : 0, 120);
   const xmin = F - half, xmax = F + half;
   const vis = rows.filter((r) => r.strike >= xmin && r.strike <= xmax);
   const title = `${esc(d.contract || '')} ${kind === 'oi' ? 'Open Interest' : 'Intraday Volume'}` +
@@ -310,9 +325,9 @@ function renderChart() {
   const kindTxt = ivKindText();
   if (lg) lg.textContent = kindTxt ? `┄ ${kindTxt}` : '┄ IV unavailable';
   const lgs = $('lg-ivs');
-  if (lgs) lgs.style.display = (qsFresh() && state.qs && (state.qs.iv_settle || []).length >= 3) ? '' : 'none';
+  if (lgs) lgs.style.display = (qsUsable() && state.qs && (state.qs.iv_settle || []).length >= 3) ? '' : 'none';
   const lsd = $('lg-sd');
-  if (lsd) lsd.textContent = qsFresh() && state.qs && state.qs.ranges ? '▮ ±1σ ▮ ±2σ ▮ ±3σ (CME Ranges)' : '▮ ±1σ ▮ ±2σ ▮ ±3σ (series)';
+  if (lsd) lsd.textContent = qsUsable() && state.qs && state.qs.ranges ? '▮ ±1σ ▮ ±2σ ▮ ±3σ (CME Ranges)' : '▮ ±1σ ▮ ±2σ ▮ ±3σ (series)';
   renderChartFoot();
   const d = chartData(state.view === 'both' ? 'intraday' : state.view) || chartData('oi') || chartData('intraday');
   if (d) {
@@ -380,6 +395,7 @@ function renderChartFoot() {
     return;
   }
   if (q && !qsFresh()) parts.push(`<span class="warn">ชุด CME QuikStrike เก่า (${qsAgeMin()} นาที — แท็บ QuikStrike ปิดอยู่?) → ใช้ Barchart แทน</span>`);
+  else if (q && qsFresh() && !qsSameSeries()) parts.push(`<span class="warn">หน้า CME QuikStrike ตอนนี้อยู่ที่ series ${esc(q.code)} (หมดอายุ ${esc(q.expiry_date)}) ไม่ใช่ series ของแผน ${esc((s && s.series) || '')} → กราฟใช้ Barchart ของ series แผน · เลือก expiry ของวันนี้บนหน้า QuikStrike แล้วชุด CME จะขึ้นเอง</span>`);
   else if (q && qsFresh()) parts.push(`ชุด CME QuikStrike (${esc(q.code)} · หน้า "${esc(q.view || '')}") แสดงที่แท็บ ${/intraday/i.test(q.view || '') ? 'Intraday' : 'OI'} — แท็บนี้ใช้ Barchart`);
   if (s) {
     let ageMin = null, asof = '';

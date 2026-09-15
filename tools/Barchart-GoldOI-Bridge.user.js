@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Barchart → GoldOI Bridge
 // @namespace    goldoi.bridge
-// @version      1.4.0
+// @version      1.5.0
 // @updateURL    https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @description  ส่งข้อมูล OI/Volume/ราคา (Barchart), Vol2Vol (QuikStrike) และ IV ราย strike (Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Vol2Vol ค้างไว้
@@ -182,7 +182,10 @@
       show(`QuikStrike: ส่งโครงสร้างหน้าให้ bridge แล้ว (ยังไม่พบ chart lib) · ${hdr.code || '?'} ${hdr.view || ''}`, false);
       return true;
     }
-    const res = await gm('POST', BRIDGE + '/qs', JSON.stringify({ kind: 'vol2vol', page: location.href, at: Date.now(), header: hdr, charts }));
+    // expiry/view selectors on the page (read-only; lets the bridge see which series the page is on and what else it offers)
+    const selects = [...document.querySelectorAll('select')].slice(0, 12).map((sel) => ({ id: sel.id, name: sel.name, selected: sel.selectedIndex,
+      options: [...sel.options].slice(0, 60).map((o) => [o.value, txt(o)]) }));
+    const res = await gm('POST', BRIDGE + '/qs', JSON.stringify({ kind: 'vol2vol', page: location.href, at: Date.now(), header: hdr, charts, selects }));
     show(`QuikStrike Vol2Vol ✓ ${hdr.code || '?'} ${hdr.view || ''} · fut ${hdr.future} · Vol ${hdr.vol} · charts ${charts.length} · ${new Date().toLocaleTimeString('th-TH')}${res.msg ? ' · ' + res.msg : ''}`, true);
     maybeRefresh(hdr);
     return true;
