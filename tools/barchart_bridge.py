@@ -490,8 +490,21 @@ def build_files(payload):
     strikes = sorted(rows, key=lambda k: float(k))
     put_oi = int(sum(_leg(rows, k, "p")[1] for k in strikes))
     call_oi = int(sum(_leg(rows, k, "c")[1] for k in strikes))
-    put_vol = int(sum(_leg(rows, k, "p")[0] for k in strikes))
-    call_vol = int(sum(_leg(rows, k, "c")[0] for k in strikes))
+    # Intraday volume = CME's "Intraday Volume": only strikes traded in the CURRENT session (tradeTime ≥
+    # 18:00 NY previous day). Barchart keeps the previous session's total on every strike until it trades
+    # again — verified 2026-09-15 21:44 against CME G3TU6: filtered totals 1399/1339 vs CME 1399/1334,
+    # per strike exact inside CME's window; unfiltered would have been 1655/1748. Needs userscript ≥1.6.
+    st = session_start_epoch()
+    has_tt = any(len(rows[k].get(s) or []) > 5 for k in strikes for s in ("c", "p"))
+
+    def _vol(k, side):
+        if not has_tt:
+            return _leg(rows, k, side)[0]
+        return _leg(rows, k, side)[0] if _trade_time(rows, k, side) >= st else 0.0
+
+    put_vol = int(sum(_vol(k, "p") for k in strikes))
+    call_vol = int(sum(_vol(k, "c") for k in strikes))
+    vol_filter = "session_tradeTime" if has_tt else "none(userscript<1.6: previous-session totals included)"
     dte = chosen["dte"]
     qs = load_qs()
     qs_map, iv_source = {}, "barchart"
@@ -535,6 +548,8 @@ def build_files(payload):
                  "Strike,Call,Put,Vol Settle"]
         for k in strikes:
             c, p = _leg(rows, k, "c"), _leg(rows, k, "p")
+            if idx == 0:                                  # intraday volume: current session only (see _vol)
+                c, p = [_vol(k, "c")] + c[1:], [_vol(k, "p")] + p[1:]
             if qs_map:                                    # CME settlement smile (QuikStrike) wins; else 0 = n/a
                 iv = qs_map.get(round(float(k), 1), 0.0)
             else:
@@ -554,6 +569,8 @@ def build_files(payload):
               "underlying": chosen["underlying"], "expiry": chosen["expiry"], "dte": dte, "future": fut,
               "chg": chg, "put_oi": put_oi, "call_oi": call_oi, "strikes": len(strikes),
               "vol": vol, "vol_source": vol_src, "iv_source": iv_source,
+              "volume_filter": vol_filter, "session_start": datetime.fromtimestamp(st, TZ_BKK).isoformat(timespec="minutes"),
+              "put_vol": put_vol, "call_vol": call_vol,
               "iv_kind": ("settlement_sheet" if iv_source == "quikstrike" else "current_computed" if iv_source == "computed" else None),
               "iv_at": ((qs or {}).get("at") if iv_source == "quikstrike" else datetime.now(TZ_BKK).isoformat(timespec="seconds") if iv_source == "computed" else None),
               "iv_code": ((qs or {}).get("code") if iv_source == "quikstrike" else chosen["code"] if iv_source == "computed" else None),
