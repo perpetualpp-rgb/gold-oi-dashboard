@@ -38,6 +38,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 MANUAL_DIR = os.path.join(ROOT, "data", "manual")
 ARCHIVE_DIR = os.path.join(ROOT, "data", "barchart")
 STATUS_PATH = os.path.join(MANUAL_DIR, "barchart_status.json")
+PAYLOAD_PATH = os.path.join(MANUAL_DIR, "barchart_payload.json")   # last raw /ingest payload (for CME comparisons)
 SD_PATH = os.path.join(ROOT, "gold-oi-dashboard", "sd_ladder.json")
 LOG_PATH = os.path.join(ROOT, "barchart_bridge.log")
 HORIZON_DAYS = 9          # how far ahead to list weekly series for the userscript
@@ -154,11 +155,11 @@ def load_qs():
 #    Interest), "Vol" = CME's current IV per strike, "Vol Settle" = yesterday's settlement IV per
 #    strike, "Ranges" = CME's own ±1/2/3σ edges, header Vol = CME's ATM vol of the series.
 #    Normalised into quikstrike_live.json, served to the LOCAL dashboard (http://127.0.0.1:8765/)
-#    and (default on since 2026-09-15, her call: she must see it from work) copied into the public site repo
-#    as data/live/quikstrike.json; GOLD_QS_PUBLISH=0 keeps it local-only.
+#    and only with GOLD_QS_PUBLISH=1 copied into the public site repo (default OFF: the site runs on
+#    Barchart, the CME trial set is for checking why the two differ — her call 2026-09-15).
 V2V_RAW = os.path.join(MANUAL_DIR, "quikstrike_vol2vol.json")
 V2V_LIVE = os.path.join(MANUAL_DIR, "quikstrike_live.json")
-QS_PUBLISH = os.environ.get("GOLD_QS_PUBLISH", "1") != "0"   # ON since 2026-09-15 (she works daytime, views the public site on her phone; set GOLD_QS_PUBLISH=0 to keep the CME set local-only)
+QS_PUBLISH = os.environ.get("GOLD_QS_PUBLISH", "0") == "1"   # OFF (her call 2026-09-15 10:20: "ใช้ Barchart ซึ่งฟรี; CME ให้ดูเพื่อตรวจสอบว่าทำไมไม่ตรงกัน") — the CME set is for comparison, local only
 V2V_FRESH_MIN = 45        # older than this → the dashboard/plan fall back to Barchart
 
 
@@ -660,6 +661,10 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             payload = json.loads(self.rfile.read(n).decode("utf-8"))
             STATE["last_payload"] = payload           # kept for the CME set (OI of the QuikStrike series) + rebuilds
+            try:                                      # raw payload on disk too (all wanted series: vol/OI/IV/bid/ask per strike)
+                json.dump(payload, open(PAYLOAD_PATH, "w", encoding="utf-8"), ensure_ascii=False)
+            except Exception as e:
+                log(f"payload save failed: {e}")
             status, msg = build_files(payload)
             STATE["last_ingest"] = time.time()
             STATE["warned"] = False
