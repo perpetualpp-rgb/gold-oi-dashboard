@@ -28,9 +28,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 try:
     from zoneinfo import ZoneInfo
     TZ_NY = ZoneInfo("America/New_York")
+    TZ_CHI = ZoneInfo("America/Chicago")
     TZ_BKK = ZoneInfo("Asia/Bangkok")
 except Exception:                                   # pragma: no cover
     TZ_NY = timezone(timedelta(hours=-4))
+    TZ_CHI = timezone(timedelta(hours=-5))
     TZ_BKK = timezone(timedelta(hours=7))
 
 HOST, PORT = "127.0.0.1", 8765
@@ -87,8 +89,11 @@ def underlying_for(month, year):
 
 
 def expiry_dt(d):
-    """Weekly gold options expire ~12:30 New York time on the expiry date (matches her DTE convention)."""
-    return datetime(d.year, d.month, d.day, 12, 30, tzinfo=TZ_NY)
+    """Weekly gold options terminate at 12:30 CHICAGO time (CME rule) = 13:30 New York = 00:30 ICT next day
+    in summer. Until 2026-09-15 this said 12:30 New York — one hour early: every DTE was 0.042 d short,
+    which made the computed IV ~0.5 pt too high at 1 DTE and ~6 pt too high on expiry day, and CME's own
+    range edges only fit with the 12:30 CT clock (verified on 14 CME snapshots)."""
+    return datetime(d.year, d.month, d.day, 12, 30, tzinfo=TZ_CHI)
 
 
 def upcoming_series(now=None):
@@ -181,8 +186,10 @@ def _ranges_from(series, fut):
     if len(below) < 3 or len(above) < 2:
         return None
     est = []
-    if len(above) < 3:                                           # lognormal-symmetric estimate: F²/(−3σ)
-        above.append(round(fut * fut / below[2], 2))
+    if len(above) < 3:                                           # CME's edges are F·exp(−½a² ± n·a), a = v√T → solve a from ±1σ
+        import math
+        a = (math.log(above[0] / fut) - math.log(below[0] / fut)) / 2
+        above.append(round(fut * math.exp(-0.5 * a * a + 3 * a), 2))
         est.append("+3")
     r = {"m1": below[0], "m2": below[1], "m3": below[2], "p1": above[0], "p2": above[1], "p3": above[2]}
     if est:

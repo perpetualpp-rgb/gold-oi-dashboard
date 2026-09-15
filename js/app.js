@@ -1,5 +1,5 @@
 /* ============================================================
-   app.js v28 — three sections only:
+   app.js v29 — three sections only:
    (1) CME-style chart: Put/Call per strike (OI or intraday volume), IV smile,
        exact futures marker, the day's tradeable SD zones as shaded bands
    (2) the OI trade plan (plan.json)
@@ -230,11 +230,11 @@ function chartPanel(d, kind) {
   let svg = '';
   // ±1σ / ±2σ / ±3σ expected-range bands of this series around the futures price (grey, CME-style);
   // she reads the zones herself — they never drive the plan's orders
-  // CME's own Ranges when we have them; otherwise CME's rule as measured 2026-09-15 on two series
-  // (DTE 3.6 and 1.1): ±1σ = F ± F·vol·√(DTE/365) exactly (linear), ±2σ/±3σ = lognormal F·e^(±n·vol·√(DTE/365))
-  // (within $0.3 of CME at DTE 1.1; the old all-linear bands were off by $1.3–3.4 there and $6–20 at DTE 3.6)
+  // CME's own Ranges when we have them; otherwise CME's exact rule (fitted to 14 CME snapshots on 2026-09-15,
+  // residual < $0.005): edge(±n) = F · exp(−½·a² ± n·a), a = vol·√(DTE/365) — the ±1/2/3 quantiles of the
+  // lognormal with mean F. For n = 1 this is numerically her linear 1SD = F·vol·√(DTE/365).
   const vt = (F && ivPct && dte) ? (ivPct / 100) * Math.sqrt(dte / 365) : 0;
-  const edge = (n) => rg ? rg[(n < 0 ? 'm' : 'p') + Math.abs(n)] : (Math.abs(n) === 1 ? F + n * sig : F * Math.exp(n * vt));
+  const edge = (n) => rg ? rg[(n < 0 ? 'm' : 'p') + Math.abs(n)] : F * Math.exp(-0.5 * vt * vt + n * vt);
   if (sig || rg) {
     const clip = (a, b) => [Math.max(xmin, Math.min(a, b)), Math.min(xmax, Math.max(a, b))];
     const shade = [[3, 'band-3'], [2, 'band-2'], [1, 'band-1']];
@@ -420,7 +420,7 @@ function renderChartFoot() {
   const d0 = state.data[state.view === 'both' ? 'oi' : state.view] || state.data.oi;
   if (d0 && d0.future && d0.iv && d0.dte) {
     const sg = d0.future * (d0.iv / 100) * Math.sqrt(d0.dte / 365);
-    parts.push(`แถบเทา = ±1/2/3σ ของ series นี้ตามวิธี CME: 1σ = ${fmt.px(d0.future)} × ${Number(d0.iv).toFixed(2)}% × √(${Number(d0.dte).toFixed(2)}/365) = $${sg.toFixed(1)} (ขอบ ±1σ เส้นตรง, ±2σ/±3σ แบบ lognormal ตามที่วัดจาก CME 15/9)`);
+    parts.push(`แถบเทา = ±1/2/3σ ของ series นี้ตามวิธี CME: 1σ = ${fmt.px(d0.future)} × ${Number(d0.iv).toFixed(2)}% × √(${Number(d0.dte).toFixed(2)}/365) = $${sg.toFixed(1)} (ขอบ = F·e^(−½a² ± n·a), a = Vol·√(DTE/365) สูตรเดียวกับ Ranges ของ CME ที่วัดได้ 15/9)`);
   }
   parts.push(`แกนราคา: ${unitName()}${state.priceMode === 'cfd' ? ` (basis −${fmt.px(state.basis)})` : ''} · ราคา Barchart ดีเลย์ ~10-15 นาที`);
   el.innerHTML = parts.join(' · ');
