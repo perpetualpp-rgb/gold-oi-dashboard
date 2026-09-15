@@ -154,10 +154,11 @@ def load_qs():
 #    Interest), "Vol" = CME's current IV per strike, "Vol Settle" = yesterday's settlement IV per
 #    strike, "Ranges" = CME's own ±1/2/3σ edges, header Vol = CME's ATM vol of the series.
 #    Normalised into quikstrike_live.json, served to the LOCAL dashboard (http://127.0.0.1:8765/)
-#    and — only when GOLD_QS_PUBLISH=1 — copied into the public site repo (licensed data: her call).
+#    and (default on since 2026-09-15, her call: she must see it from work) copied into the public site repo
+#    as data/live/quikstrike.json; GOLD_QS_PUBLISH=0 keeps it local-only.
 V2V_RAW = os.path.join(MANUAL_DIR, "quikstrike_vol2vol.json")
 V2V_LIVE = os.path.join(MANUAL_DIR, "quikstrike_live.json")
-QS_PUBLISH = os.environ.get("GOLD_QS_PUBLISH", "0") == "1"
+QS_PUBLISH = os.environ.get("GOLD_QS_PUBLISH", "1") != "0"   # ON since 2026-09-15 (she works daytime, views the public site on her phone; set GOLD_QS_PUBLISH=0 to keep the CME set local-only)
 V2V_FRESH_MIN = 45        # older than this → the dashboard/plan fall back to Barchart
 
 
