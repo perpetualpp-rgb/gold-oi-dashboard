@@ -259,9 +259,10 @@ def save_v2v(payload):
         d["oi"], d["oi_source"] = oi, f"Barchart {code} (settlement OI)"
     d["published"] = QS_PUBLISH
     json.dump(d, open(V2V_LIVE, "w", encoding="utf-8"), ensure_ascii=False)
-    if QS_PUBLISH:
+    if QS_PUBLISH:                                   # public copy: no page URL (nothing on the site reads it)
         os.makedirs(LIVE_DIR, exist_ok=True)
-        json.dump(d, open(os.path.join(LIVE_DIR, "quikstrike.json"), "w", encoding="utf-8"), ensure_ascii=False)
+        pub = {k: v for k, v in d.items() if k != "page"}
+        json.dump(pub, open(os.path.join(LIVE_DIR, "quikstrike.json"), "w", encoding="utf-8"), ensure_ascii=False)
     return d
 
 
@@ -496,12 +497,26 @@ def _git_publish(series):
     try:
         def git(*a, timeout=90):
             return subprocess.run(["git", "-C", REPO_DIR, *a], capture_output=True, text=True, timeout=timeout)
+        if os.path.isdir(os.path.join(REPO_DIR, ".git", "rebase-merge")) or os.path.isdir(os.path.join(REPO_DIR, ".git", "rebase-apply")):
+            git("rebase", "--abort")                  # a rebase left half-done by an earlier failure would block every publish
+            log("live publish: aborted a stuck rebase")
         git("add", "data/live")
         c = git("commit", "-q", "-m", f"live data {series} {datetime.now(TZ_BKK).strftime('%m-%d %H:%M')}")
-        if c.returncode != 0 and "nothing to commit" in (c.stdout + c.stderr):
+        if c.returncode != 0:
+            if "nothing to commit" in (c.stdout + c.stderr):
+                return
+            log(f"live publish: commit failed {(c.stderr or c.stdout or '')[-160:]}")   # e.g. index.lock while a manual commit runs
+            STATE["last_publish"] = 0                 # let the next ingest retry instead of waiting PUBLISH_MIN
             return
-        git("pull", "--rebase", "-X", "theirs", "origin", "main", "-q")
+        pl = git("pull", "--rebase", "-X", "theirs", "origin", "main", "-q")
+        if pl.returncode != 0:
+            git("rebase", "--abort")
+            log(f"live publish: pull --rebase failed, aborted {(pl.stderr or '')[-160:]}")
+            STATE["last_publish"] = 0
+            return
         r = git("push", "-q", "origin", "main")
+        if r.returncode != 0:
+            STATE["last_publish"] = 0
         log(f"live publish: {'ok' if r.returncode == 0 else 'FAILED ' + (r.stderr or '')[-160:]}")
     except Exception as e:
         log(f"live publish error: {e}")
@@ -683,6 +698,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    try:                                              # a restart keeps the last payload (≤ 30 min old) for CME comparisons/rebuilds
+        pl = json.load(open(PAYLOAD_PATH, encoding="utf-8"))
+        if time.time() - float(pl.get("at") or 0) / 1000 < 30 * 60:
+            STATE["last_payload"] = pl
+    except Exception:
+        pass
     threading.Thread(target=stale_watch, daemon=True).start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     log(f"bridge listening on http://{HOST}:{PORT}  wanted={[s['code'] for s in upcoming_series()][:6]}")

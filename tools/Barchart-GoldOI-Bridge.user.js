@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Barchart → GoldOI Bridge
 // @namespace    goldoi.bridge
-// @version      1.5.0
+// @version      1.5.1
 // @updateURL    https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @description  ส่งข้อมูล OI/Volume/ราคา (Barchart), Vol2Vol (QuikStrike) และ IV ราย strike (Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Vol2Vol ค้างไว้
@@ -210,8 +210,14 @@
     else { show('QuikStrike: โหลดหน้าใหม่ (ข้อมูลไม่เปลี่ยน 20 นาที)'); setTimeout(() => location.reload(), 1500); }
   }
 
+  function hasVol2VolChart() {
+    const H = W.Highcharts;
+    return !!(H && H.charts && H.charts.some((ch) => ch && ch.series && ch.series.some((s) => s.name === 'Put') && ch.series.some((s) => s.name === 'Call')));
+  }
   async function cycleQuikStrike() {
-    if (/QuikStrikeView|pid=40/i.test(location.href) && !findSheetTable()) { await cycleVol2Vol(); return; }
+    // Vol2Vol page: the chart wins whenever it is on the page (the page also carries an expiration summary
+    // table — Expiration/Volatility/Skew/OI/Volume — that must not be mistaken for a pricing sheet, 2026-09-15)
+    if (hasVol2VolChart() || (/QuikStrikeView|pid=40/i.test(location.href) && !findSheetTable())) { await cycleVol2Vol(); return; }
     const table = findSheetTable();
     if (!table) {
       show('QuikStrike: ยังไม่พบตาราง Pricing Sheet บนหน้านี้ — เปิดหน้า Pricing Sheet ค้างไว้', false);

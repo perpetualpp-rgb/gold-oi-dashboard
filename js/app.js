@@ -205,7 +205,8 @@ function chartPanel(d, kind) {
   if (rg) {
     const s1 = (rg.p1 - rg.m1) / 2;
     const withData = rows.filter((r) => (r.call || 0) + (r.put || 0) > 0).map((r) => Math.abs(r.strike - F));
-    half = Math.max(2.3 * s1, withData.length ? Math.max(...withData) + 10 : 0, 60);
+    // at least ±2.3σ, widened for strikes with data but never beyond ±3.5σ (a lone 6000 OI strike must not flatten the chart)
+    half = Math.max(2.3 * s1, Math.min(withData.length ? Math.max(...withData) + 10 : 0, 3.5 * s1), 60);
   } else half = Math.max(sig ? 3.3 * sig : 0, 120);
   const xmin = F - half, xmax = F + half;
   const vis = rows.filter((r) => r.strike >= xmin && r.strike <= xmax);
@@ -384,10 +385,10 @@ function renderChartFoot() {
     let asof = '';
     try { asof = new Date(q.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
     parts.push(`<b>กราฟ = ชุดข้อมูล CME QuikStrike Vol2Vol</b> (${esc(q.code)} · หน้า "${esc(q.view || '')}") ณ ${asof} (อายุ ${age} นาที)`);
-    parts.push(`fut ${fmt.px(q.future)} (${Number(q.chg) >= 0 ? '+' : ''}${q.chg}) · DTE ${Number(q.dte).toFixed(2)} · Vol ${Number(q.vol).toFixed(2)} (ATM Vol ของ CME) · Put ${fmt.int(q.put_total)} / Call ${fmt.int(q.call_total)}`);
+    parts.push(`fut ${fmt.px(q.future)}${q.chg != null ? ` (${Number(q.chg) >= 0 ? '+' : ''}${q.chg})` : ''} · DTE ${q.dte != null ? Number(q.dte).toFixed(2) : '—'} · Vol ${q.vol != null ? Number(q.vol).toFixed(2) : '—'} (ATM Vol ของ CME) · Put ${fmt.int(q.put_total)} / Call ${fmt.int(q.call_total)}`);
     if (/intraday/i.test(q.view || '')) parts.push(`แท่ง Intraday = CME (${q.bars.length} strikes ที่หน้า CME แสดง) · แท่ง OI = ${q.oi ? esc(q.oi_source || 'Barchart') : 'Barchart (series ที่ bridge เลือก)'}`);
-    else parts.push(`แท่ง OI = CME (${q.bars.length} strikes) · แท่ง Intraday = Barchart`);
-    if (q.ranges) parts.push(`แถบเทา = Ranges ของ CME: −3σ ${fmt.px(toUnit(q.ranges.m3))} · −2σ ${fmt.px(toUnit(q.ranges.m2))} · −1σ ${fmt.px(toUnit(q.ranges.m1))} · +1σ ${fmt.px(toUnit(q.ranges.p1))} · +2σ ${fmt.px(toUnit(q.ranges.p2))} · +3σ ${fmt.px(toUnit(q.ranges.p3))}${q.ranges.estimated ? ` <span class="warn">(+3σ ประมาณจากความสมมาตร — อัปเดต userscript 1.4 เพื่อค่าจริง)</span>` : ''}`);
+    else parts.push(`แท่ง OI = ${q.oi ? esc(q.oi_source || 'Barchart') + ' (CME OI ของหน้าเว็บมี ' + q.bars.length + ' strikes)' : 'CME (' + q.bars.length + ' strikes)'} · แท่ง Intraday = Barchart`);
+    if (q.ranges) parts.push(`แถบเทา = Ranges ของ CME: −3σ ${fmt.px(toUnit(q.ranges.m3))} · −2σ ${fmt.px(toUnit(q.ranges.m2))} · −1σ ${fmt.px(toUnit(q.ranges.m1))} · +1σ ${fmt.px(toUnit(q.ranges.p1))} · +2σ ${fmt.px(toUnit(q.ranges.p2))} · +3σ ${fmt.px(toUnit(q.ranges.p3))}${q.ranges.estimated ? ` <span class="warn">(+3σ ประมาณจากความสมมาตร — หน้า CME ยังส่งขอบด้านเดียว)</span>` : ''}`);
     parts.push(`<span style="color:var(--iv-line)">${ivLabel()}</span>`);
     parts.push(`แกนราคา: ${unitName()}${state.priceMode === 'cfd' ? ` (basis −${fmt.px(state.basis)})` : ''} · ตัวเลข CME ดีเลย์ตามหน้า QuikStrike · แผนเทรดยังใช้ series ที่ bridge เลือก (${esc((s && s.series) || '—')})`);
     if (q.published === false) parts.push('<span style="color:var(--fg2)">ชุด CME แสดงเฉพาะ dashboard ในเครื่อง (ไม่เผยแพร่ขึ้นเว็บสาธารณะ)</span>');
