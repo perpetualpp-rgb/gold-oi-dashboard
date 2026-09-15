@@ -39,6 +39,7 @@ MANUAL_DIR = os.path.join(ROOT, "data", "manual")
 ARCHIVE_DIR = os.path.join(ROOT, "data", "barchart")
 STATUS_PATH = os.path.join(MANUAL_DIR, "barchart_status.json")
 PAYLOAD_PATH = os.path.join(MANUAL_DIR, "barchart_payload.json")   # last raw /ingest payload (for CME comparisons)
+BARCHART_FIELDS = "optionType,volume,openInterest,strikePrice,optImpliedVolatility,bidPrice,askPrice,tradeTime"   # userscript ≥1.6 reads this
 SD_PATH = os.path.join(ROOT, "gold-oi-dashboard", "sd_ladder.json")
 LOG_PATH = os.path.join(ROOT, "barchart_bridge.log")
 HORIZON_DAYS = 9          # how far ahead to list weekly series for the userscript
@@ -238,6 +239,78 @@ def _oi_for_expiry(expiry_date):
     return None, None
 
 
+COMPARE_PATH = os.path.join(MANUAL_DIR, "cme_compare.jsonl")
+
+
+def compare_v2v(d):
+    """Her question 2026-09-15: 'why does our Barchart chart differ from CME?' — on every CME dump whose expiry
+    matches a Barchart series in the last payload, record the differences: volume totals, ATM vol, per-strike
+    IV (computed from Barchart mids vs CME Vol), range edges (CME vs linear/lognormal σ). Appended to
+    cme_compare.jsonl; one summary line in the log. Never raises."""
+    try:
+        import math
+        pl = STATE.get("last_payload") or {}
+        bc = None
+        for s in upcoming_series():
+            if s["expiry"][:10] == d.get("expiry_date"):
+                bc = s
+                break
+        rows = ((pl.get("series") or {}).get(bc["code"]) or {}).get("rows") if bc else None
+        if not rows:
+            return None
+        fq = (pl.get("futures") or {}).get(bc["underlying"]) or {}
+        fut_bc = float(fq.get("last") or 0)
+        fut_q = float(d.get("future") or 0)
+        cme_bars = {float(r[0]): (int(r[1]), int(r[2])) for r in d.get("bars") or []}
+        bar_vol = {float(k): (int(_leg(rows, k, "c")[0]), int(_leg(rows, k, "p")[0])) for k in rows}
+        comp, comp_atm = computed_smile(rows, fut_bc, bc["dte"])
+        cme_iv = {float(k): float(v) for k, v in d.get("iv_current") or []}
+        cme_set = {float(k): float(v) for k, v in d.get("iv_settle") or []}
+        near = sorted(cme_iv, key=lambda k: abs(k - fut_q))[:12]
+        errs = [comp[round(k, 1)] - cme_iv[k] for k in near if round(k, 1) in comp]
+        same_as_settle = bool(cme_iv) and all(abs(cme_iv[k] - cme_set.get(k, -99)) < 0.005 for k in cme_iv)
+        rg = d.get("ranges") or {}
+        vol = float(d.get("vol") or 0) / 100
+        T = float(d.get("dte") or 0) / 365
+        sig = fut_q * vol * math.sqrt(T) if fut_q and vol and T else 0
+        edges = {}
+        for n, key in ((-3, "m3"), (-2, "m2"), (-1, "m1"), (1, "p1"), (2, "p2"), (3, "p3")):
+            e = rg.get(key)
+            if e and sig:
+                edges[key] = {"cme": e, "lin": round(fut_q + n * sig - e, 2), "logn": round(fut_q * math.exp(n * vol * math.sqrt(T)) - e, 2)}
+        st = session_start_epoch()
+        detail = []                                   # per strike where either side shows volume: who says what, and when Barchart last traded it
+        for k in sorted(set(cme_bars) | {k for k, v in bar_vol.items() if v[0] + v[1] > 0}):
+            c = cme_bars.get(k, (0, 0)); b = bar_vol.get(k, (0, 0))
+            if c[0] + c[1] + b[0] + b[1] == 0 or c == b:
+                continue
+            kk = str(int(k)) if str(int(k)) in rows else str(k)
+            ttc, ttp = (_trade_time(rows, kk, "c"), _trade_time(rows, kk, "p")) if kk in rows else (0, 0)
+            fmt_t = lambda t: (datetime.fromtimestamp(t, TZ_BKK).strftime("%m-%d %H:%M") + ("" if t >= st else "*")) if t else "-"
+            detail.append({"k": k, "cme_c": c[0], "cme_p": c[1], "bc_c": b[0], "bc_p": b[1], "bc_tt_c": fmt_t(ttc), "bc_tt_p": fmt_t(ttp)})
+        rec = {"at": d.get("at"), "cme": d.get("code"), "view": d.get("view"), "barchart": bc["code"],
+               "session_start": datetime.fromtimestamp(st, TZ_BKK).strftime("%Y-%m-%d %H:%M"), "detail": detail,
+               "fut_cme": fut_q, "fut_barchart": fut_bc, "dte_cme": d.get("dte"), "dte_barchart": round(bc["dte"], 3),
+               "vol_cme": d.get("vol"), "atm_computed": comp_atm,
+               "cme_vol_equals_settle": same_as_settle,
+               "iv_diff_near_atm": {"n": len(errs), "mean": round(sum(errs) / len(errs), 2) if errs else None,
+                                    "max_abs": round(max(abs(e) for e in errs), 2) if errs else None},
+               "volume": {"cme_call": sum(v[0] for v in cme_bars.values()), "cme_put": sum(v[1] for v in cme_bars.values()),
+                          "barchart_call": sum(v[0] for v in bar_vol.values()), "barchart_put": sum(v[1] for v in bar_vol.values()),
+                          "cme_strikes": sum(1 for v in cme_bars.values() if v[0] + v[1]), "barchart_strikes": sum(1 for v in bar_vol.values() if v[0] + v[1])},
+               "ranges": edges, "ranges_estimated": rg.get("estimated")}
+        with open(COMPARE_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        log(f"cme compare: {d.get('code')} vs {bc['code']} fut {fut_q}/{fut_bc} vol CME {d.get('vol')} computed {comp_atm} "
+            f"ivΔ mean {rec['iv_diff_near_atm']['mean']} (cme=settle {same_as_settle}) "
+            f"vol c/p CME {rec['volume']['cme_call']}/{rec['volume']['cme_put']} Barchart {rec['volume']['barchart_call']}/{rec['volume']['barchart_put']} "
+            f"ranges lin/logn Δ m2 {edges.get('m2', {}).get('lin')}/{edges.get('m2', {}).get('logn')} p2 {edges.get('p2', {}).get('lin')}/{edges.get('p2', {}).get('logn')}")
+        return rec
+    except Exception as e:
+        log(f"cme compare failed: {e}")
+        return None
+
+
 def load_v2v(max_age_min=V2V_FRESH_MIN):
     """The normalised CME set if it is fresh enough, else None."""
     try:
@@ -370,6 +443,28 @@ def _sd_vol_today():
 def _leg(rows, k, side):
     v = rows[k].get(side) or [0, 0, 0]
     return [float(v[0] or 0), float(v[1] or 0), float(v[2] or 0)]
+
+
+def _trade_time(rows, k, side):
+    """Epoch seconds of the strike's last trade (userscript ≥1.6), else 0. Barchart gives a date-only stamp
+    (00:00 UTC) for trades of earlier sessions and a real time for the current session."""
+    v = rows[k].get(side) or []
+    try:
+        return float(v[5] or 0) if len(v) > 5 else 0.0
+    except Exception:
+        return 0.0
+
+
+def session_start_epoch(now=None):
+    """Start of the current CME trading day for gold: 18:00 New York of the previous calendar day
+    (Globex reopens 18:00 ET; the day session closes 17:00 ET)."""
+    now = (now or datetime.now(timezone.utc)).astimezone(TZ_NY)
+    st = now.replace(hour=18, minute=0, second=0, microsecond=0)
+    if now.hour < 18:
+        st -= timedelta(days=1)
+    while st.weekday() >= 5:                          # Sat/Sun → Friday 18:00 (nothing trades, but stay sane)
+        st -= timedelta(days=1)
+    return st.timestamp()
 
 
 def build_files(payload):
@@ -508,7 +603,7 @@ def _git_publish(series):
             log(f"live publish: commit failed {(c.stderr or c.stdout or '')[-160:]}")   # e.g. index.lock while a manual commit runs
             STATE["last_publish"] = 0                 # let the next ingest retry instead of waiting PUBLISH_MIN
             return
-        pl = git("pull", "--rebase", "-X", "theirs", "origin", "main", "-q")
+        pl = git("pull", "--rebase", "--autostash", "-X", "theirs", "origin", "main", "-q")   # autostash: uncommitted edits elsewhere in the repo must not block the publish
         if pl.returncode != 0:
             git("rebase", "--abort")
             log(f"live publish: pull --rebase failed, aborted {(pl.stderr or '')[-160:]}")
@@ -584,7 +679,7 @@ class Handler(BaseHTTPRequestHandler):
             ser = upcoming_series()
             self._send(200, {"symbols": [s["code"] for s in ser][:6],
                              "futures": sorted({s["underlying"] for s in ser}),
-                             "series": ser[:6]})
+                             "series": ser[:6], "fields": BARCHART_FIELDS})
         elif self.path.startswith("/iv"):
             self._send(200, load_qs() or {"rows": [], "msg": "no QuikStrike IV received yet"})
         elif self.path.startswith("/status"):
@@ -640,6 +735,7 @@ class Handler(BaseHTTPRequestHandler):
                     log(f"quikstrike vol2vol: no Put/Call chart in dump ({h.get('code')} {h.get('view')})")
                     return self._send(200, {"ok": False, "msg": "no Put/Call chart found"})
                 rg = d.get("ranges") or {}
+                compare_v2v(d)                        # her "why do they differ" record (cme_compare.jsonl)
                 log(f"quikstrike vol2vol: {d['code']} {d['view']} fut {d['future']} vol {d['vol']} bars {len(d['bars'])} "
                     f"ivCur {len(d['iv_current'])} ivSettle {len(d['iv_settle'])} ranges "
                     f"{rg.get('m3')}/{rg.get('m2')}/{rg.get('m1')} | {rg.get('p1')}/{rg.get('p2')}/{rg.get('p3')}"

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Barchart → GoldOI Bridge
 // @namespace    goldoi.bridge
-// @version      1.5.1
+// @version      1.6.0
 // @updateURL    https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/perpetualpp-rgb/gold-oi-dashboard/main/tools/Barchart-GoldOI-Bridge.user.js
 // @description  ส่งข้อมูล OI/Volume/ราคา (Barchart), Vol2Vol (QuikStrike) และ IV ราย strike (Pricing Sheet) ให้ barchart_bridge.py ในเครื่อง (127.0.0.1:8765) ทุก 10 นาที — เปิดแท็บ barchart.com และแท็บ QuikStrike Vol2Vol ค้างไว้
@@ -45,7 +45,10 @@
 
   // ═══════════════════════════ Barchart: OI / volume / futures ═══════════════════════════
   // bid/ask are one delayed snapshot for every strike → the bridge computes a consistent IV smile from mids
-  const FIELDS = 'optionType%2Cvolume%2CopenInterest%2CstrikePrice%2CoptImpliedVolatility%2CbidPrice%2CaskPrice';
+  // field list can be extended by the bridge (GET /wanted → fields) without re-installing this script.
+  // tradeTime (2026-09-15): Barchart's per-strike volume keeps the PREVIOUS session's total until the strike
+  // trades again — only tradeTime tells which strikes really traded in the current session.
+  let FIELDS = encodeURIComponent('optionType,volume,openInterest,strikePrice,optImpliedVolatility,bidPrice,askPrice,tradeTime');
   async function api(path) {
     const r = await fetch(path, { headers: { accept: 'application/json' }, credentials: 'include' });
     if (!r.ok) throw new Error('barchart HTTP ' + r.status);
@@ -61,7 +64,7 @@
         if (r.strikePrice == null) continue;
         const k = String(r.strikePrice);
         rows[k] = rows[k] || {};
-        rows[k][r.optionType === 'Call' ? 'c' : 'p'] = [r.volume || 0, r.openInterest || 0, r.optImpliedVolatility || 0, r.bidPrice || 0, r.askPrice || 0];
+        rows[k][r.optionType === 'Call' ? 'c' : 'p'] = [r.volume || 0, r.openInterest || 0, r.optImpliedVolatility || 0, r.bidPrice || 0, r.askPrice || 0, r.tradeTime || 0];
       }
     }
     return { n: Object.keys(rows).length, rows };
@@ -76,6 +79,7 @@
   async function cycleBarchart() {
     show('กำลังดึงข้อมูล Barchart…');
     const wanted = await gm('GET', BRIDGE + '/wanted');
+    if (wanted.fields) FIELDS = encodeURIComponent(wanted.fields);
     const series = {};
     for (const code of (wanted.symbols || [])) {
       try { series[code] = await fetchSeries(code); } catch (e) { series[code] = { n: 0, rows: {}, err: String(e) }; }
