@@ -1,5 +1,5 @@
 {
- "at": "2026-09-15T10:03:07+07:00",
+ "at": "2026-09-15T10:03:41+07:00",
  "series": "I0DU26",
  "underlying": "GCV26",
  "expiry": "2026-09-15T12:30:00-04:00",
@@ -13,7 +13,7 @@
  "vol_source": "series_atm_computed",
  "iv_source": "computed",
  "iv_kind": "current_computed",
- "iv_at": "2026-09-15T10:03:07+07:00",
+ "iv_at": "2026-09-15T10:03:41+07:00",
  "iv_code": "I0DU26",
  "iv_n": 32,
  "iv_atm": 26.41,
