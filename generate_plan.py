@@ -551,38 +551,75 @@ def build_plan(s):
     # multi-day series (Friday weekly, DTE 3.5) is a WEEKLY range and blew SL out to $39 (2026-09-08).
     buf = max(round(0.6 * sd_day) if regime == "high" else round(0.4 * sd_day), 12)
 
-    def setup(side, title, e, sl, tps, note):
+    def setup(side, title, e, sl, tps, note, **extra):
         risk_pts = abs(sl - e) or 1
         rr = abs(e - tps[0]) / risk_pts
         rr_txt = ("≈1:" + f"{rr:.1f}".rstrip("0").rstrip("."))
         if rr < 2:      # book discipline RR ≥ 1:2 — flag it, don't silently assert it
             note += f" · ⚠ RR {rr_txt} ต่ำกว่าเป้า 1:2 (SL กว้างช่วง vol สูง) — ลดขนาดไม้ หรือข้าม setup นี้"
-        return {"side": side, "title": title, "entry": cfd(e), "sl": cfd(sl),
-                "tp": [cfd(t) for t in tps], "rr": rr_txt, "note": note}
+        d = {"side": side, "title": title, "entry": cfd(e), "sl": cfd(sl),
+             "tp": [cfd(t) for t in tps], "rr": rr_txt, "note": note}
+        d.update(extra)
+        return d
 
+    # HER RULE 2026-09-16 ("ไม่จำเป็นต้องมีข้างละ 1 ออเดอร์ แต่ควรตรงตามทฤษฎี"): the plan lists exactly
+    # what the OI method prescribes — every key wall is a TWO-WAY decision point: (1) the wall holds →
+    # trade WITH the wall after the H1 rejection wick; (2) the wall gives way with volume/OI shift →
+    # trade THROUGH it (Call wall broken up = gamma squeeze; Put wall broken down = breakdown).
+    # The day's bias sets size, not the list: with-trend = full size (main); counter-trend = half size
+    # + short TP (book: สวนเทรนด์วันแรง = ไม้ครึ่ง); in HIGH regime under the golden rule (IV still
+    # rising) counter-trend setups are dropped altogether (ห้ามสวนเทรนด์). No artificial cap, no
+    # invented setups: two walls × two branches = at most 4 cards, read per wall, not as a menu.
     sup2 = sup[1]["price"] if len(sup) > 1 else round(fut - 2 * sd)
     res2 = res[1]["price"] if len(res) > 1 else round(fut + 2 * sd)
-    if bias == "short":
-        entries = [
-            setup("short", "Short รีเจกต์แนวต้าน", res1, res1 + buf, [sup1, sup2],
-                  f"รอเด้งขึ้น {cfd(res1)} (fut {res1}) + ไส้เทียน H1 reject แล้วค่อย Short"),
-            setup("short", "Short ตามการหลุดแนว", sup1, sup1 + buf, [max(sup_last, round(sup1 - 2 * sd_day))],
-                  f"ถ้าปิด H1 ใต้ {cfd(sup1)} (fut {sup1}) + วอลุ่ม/OI ฝั่งลงเพิ่ม (ของจริง ห้ามสวน)"),
-        ]
-    elif bias == "long":
-        entries = [
-            setup("long", "Long รีเจกต์แนวรับ", sup1, sup1 - buf, [res1, res2],
-                  f"รอย่อลง {cfd(sup1)} (fut {sup1}) + ไส้เทียน H1 reject (ทิ้งไส้ล่าง) แล้วค่อย Long"),
-            setup("long", "Long ตามการทะลุ", res1, res1 - buf, [min(res_last, round(res1 + 2 * sd_day))],
-                  f"ถ้าปิด H1 เหนือ {cfd(res1)} (fut {res1}) + วอลุ่ม/OI ฝั่งขึ้นเพิ่ม (Gamma squeeze)"),
-        ]
+    brk_up_tp = min(res_last, round(res1 + 2 * sd_day))
+    if brk_up_tp <= res1:
+        brk_up_tp = round(res1 + 2 * sd_day)
+    brk_dn_tp = max(sup_last, round(sup1 - 2 * sd_day))
+    if brk_dn_tp >= sup1:
+        brk_dn_tp = round(sup1 - 2 * sd_day)
+    no_fade = bool(golden_gate) or (regime == "high" and chg != 0)   # กฎทอง: don't fade a volatile trend
+    if bias in ("short", "long"):
+        trend_dir = bias
+    elif no_fade and chg != 0:
+        trend_dir = "short" if chg < 0 else "long"
     else:
-        entries = [
-            setup("short", "Short ขอบบนกรอบ", res1, res1 + buf, [sup1],
-                  f"ชนแนวต้าน {cfd(res1)} (fut {res1}) + ไส้เทียน H1 → Short สั้น"),
-            setup("long", "Long ขอบล่างกรอบ", sup1, sup1 - buf, [res1],
-                  f"แตะแนวรับ {cfd(sup1)} (fut {sup1}) + ไส้เทียน H1 → Long สั้น"),
-        ]
+        trend_dir = None
+
+    def role_of(side):
+        if trend_dir is None:
+            return "range"                                   # neutral day: both directions equal, short targets
+        return "main" if side == trend_dir else "counter"
+
+    size_txt = {"main": "ตามเทรนด์ · ไม้เต็ม", "counter": "สวนเทรนด์ · ไม้ครึ่ง + TP สั้น (ตำรา)",
+                "range": "เล่นในกรอบ · TP สั้น"}
+    res_lbl = f"ด่าน Call {res1} ({res[0]['note']})" if res else f"ด่าน +1σ {res1}"
+    sup_lbl = f"ด่าน Put {sup1} ({sup[0]['note']})" if sup else f"ด่าน −1σ {sup1}"
+    cand = [
+        # wall above (Call OI): hold → short; break up → long (gamma squeeze)
+        setup("short", "Short รีเจกต์แนวต้าน", res1, res1 + buf,
+              [sup1, sup2] if role_of("short") == "main" else [max(sup1, round(res1 - sd_day)), sup1],
+              f"รอเด้งขึ้น {cfd(res1)} (fut {res1}) + ไส้เทียน H1 reject แล้วค่อย Short",
+              level=res1, level_label=res_lbl, branch="reject", role=role_of("short")),
+        setup("long", "Long ตามการทะลุ", res1, res1 - buf, [brk_up_tp],
+              f"ถ้าปิด H1 เหนือ {cfd(res1)} (fut {res1}) + วอลุ่ม/OI ฝั่งขึ้นเพิ่ม (Gamma squeeze ของจริง ห้ามสวน)",
+              level=res1, level_label=res_lbl, branch="break", role=role_of("long")),
+        # wall below (Put OI): hold → long; break down → short
+        setup("long", "Long รีเจกต์แนวรับ", sup1, sup1 - buf,
+              [res1, res2] if role_of("long") == "main" else [min(res1, round(sup1 + sd_day)), res1],
+              f"รอย่อลง {cfd(sup1)} (fut {sup1}) + ไส้เทียน H1 reject (ทิ้งไส้ล่าง) แล้วค่อย Long",
+              level=sup1, level_label=sup_lbl, branch="reject", role=role_of("long")),
+        setup("short", "Short ตามการหลุดแนว", sup1, sup1 + buf, [brk_dn_tp],
+              f"ถ้าปิด H1 ใต้ {cfd(sup1)} (fut {sup1}) + วอลุ่ม/OI ฝั่งลงเพิ่ม (ของจริง ห้ามสวน)",
+              level=sup1, level_label=sup_lbl, branch="break", role=role_of("short")),
+    ]
+    entries, dropped = [], []
+    for e in cand:
+        if e["role"] == "counter" and no_fade:               # golden rule: no counter-trend orders at all
+            dropped.append(f"{'SHORT' if e['side'] == 'short' else 'LONG'} {e['title']} ที่ {e['entry']:g}")
+            continue
+        e["note"] += f" · {size_txt[e['role']]}"
+        entries.append(e)
 
     # ── $50 Grid (book Ch6): round-level Block-Trade S/R, flag the ones on a dense OI wall ──
     walls = {}                                     # strike -> OI count (her ≥100-contract rule needs sizes)
@@ -686,26 +723,16 @@ def build_plan(s):
     bits.append(f"จุดเข้า/SL/TP + แนวรับต้าน = ราคา CFD/XAUUSD (แปลงจาก futures ด้วย basis −{basis:g}{' สด' if basis_live else ' ประมาณ'}); basis ขยับตามตลาด ควรเทียบกับราคาโบรกฯ ของคุณอีกที")
     if g_up and g_dn:
         bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
-    # ── PLAN DISCIPLINE (her rule 2026-09-08 "ทำไมออเดอร์เยอะ วางแผนดีๆ"): ONE primary order per side.
-    # Priority per side: ⭐ confluence ไม้ 1 (its ไม้ 2 folds in as the add-on line) > wall/range setup.
-    # Every displaced setup becomes แผนสำรอง (Plan B) — conditions to watch, NOT orders.
-    primary, plan_b = {}, []
-    for e in entries:
-        sd_ = e["side"]
-        is_l2 = "ไม้ 2" in e["title"]
-        if sd_ not in primary:
-            if not is_l2:
-                primary[sd_] = e
-            continue
-        p0 = primary[sd_]
-        if is_l2 and "ไม้ 1" in p0["title"] and not p0.get("add_on"):
-            p0["add_on"] = {"entry": e["entry"], "sl": e["sl"],
-                            "label": e["title"].split("·", 1)[-1].strip()}
-            continue
-        kind = "ตามเทรนด์ เมื่อปิด H1 ยืนยัน" if ("หลุด" in e["title"] or "ทะลุ" in e["title"])             else "ไม้เล็ก ถ้าราคาไม่ถึงโซนหลัก"
-        tps = "/".join(f"{t:g}" for t in e["tp"])
-        plan_b.append(f"{'SHORT' if sd_ == 'short' else 'LONG'} {e['title']} — เข้า {e['entry']:g} · SL {e['sl']:g} · TP {tps} ({kind})")
-    entries = sorted(primary.values(), key=lambda e: (0 if e["side"] == bias else 1, abs(e["entry"] - spot)))
+    # ── ORDER OF READING (her rule 2026-09-16 replaces the 2026-09-08 one-per-side cap): cards are read
+    # per wall — the wall nearest to price first, and within a wall the with-trend branch first. Nothing is
+    # displaced into a "Plan B" bucket any more; the only setups NOT listed are counter-trend ones blocked
+    # by the golden rule, and those are named in the risk note so nothing is hidden.
+    plan_b = []
+    entries = sorted(entries, key=lambda e: (abs(e["level"] - fut), 0 if e["role"] == "main" else 1,
+                                             0 if e["branch"] == "reject" else 1))
+    if dropped:
+        bits.append("กฎทอง: ตัด setup สวนเทรนด์ออกจากแผนวันนี้ — " + " · ".join(dropped)
+                    + " (IV ยังพุ่ง ห้ามสวน; กลับมาได้เมื่อ IV หักหัวลง)")
 
     if s.get("reanchored"):
         ra = s["reanchored"]
@@ -1087,10 +1114,15 @@ def notify_telegram(plan, chart_path=None):
             f"SELL {fmt1(L['p2'])}–{fmt1(L['p3'])} · Mean {fmt1(L['mean'])} · BUY {fmt1(L['m2'])}–{fmt1(L['m3'])}",
             "",
         ]
+    last_lvl = None
     for en in plan["entries"]:
+        if en.get("level_label") and en["level_label"] != last_lvl:      # per-wall header (2026-09-16 layout)
+            lines.append(f"▸ {en['level_label']}")
+            last_lvl = en["level_label"]
         side = "LONG" if en["side"] == "long" else "SHORT"
         tps = "/".join(fmt1(t) for t in en["tp"])
-        lines.append(f"• {side} {en['title']}")
+        role = {"main": " · ตามเทรนด์ ไม้เต็ม", "counter": " · สวนเทรนด์ ไม้ครึ่ง", "range": " · ในกรอบ"}.get(en.get("role"), "")
+        lines.append(f"• {side} {en['title']}{role}")
         lines.append(f"   เข้า {fmt1(en['entry'])} · SL {fmt1(en['sl'])} · TP {tps} · {en['rr']}")
         if en.get("add_on"):
             a = en["add_on"]

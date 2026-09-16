@@ -258,3 +258,13 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6p
   .sdz-fut { grid-column: 1 / -1; text-align: left; }
   .chart-svg .tick { font-size: 13px; }
 }
+
+/* 2026-09-16 per-wall entry groups */
+.entry-level { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--fg); margin: 10px 0 4px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.entry-level i { font-style: normal; font-weight: 400; color: var(--fg2); }
+.entry.brk { opacity: 0.92; }
+.role-tag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 4px; font-family: var(--mono); font-size: 9.5px; font-weight: 600; vertical-align: 1px; color: #fff; background: #5a6472; }
+.role-tag.main { background: #2a7f62; }
+.role-tag.counter { background: #b8860b; }
+.role-tag.range { background: #5a6472; }
+

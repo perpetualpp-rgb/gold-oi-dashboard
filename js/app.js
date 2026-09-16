@@ -1,5 +1,5 @@
 /* ============================================================
-   app.js v29 — three sections only:
+   app.js v30 — three sections only:
    (1) CME-style chart: Put/Call per strike (OI or intraday volume), IV smile,
        exact futures marker, the day's tradeable SD zones as shaded bands
    (2) the OI trade plan (plan.json)
@@ -478,11 +478,19 @@ function renderPlan(p) {
     : '';
   const sigLine = (label, cls, e, sl, tp) =>
     `<div class="entry-nums"><span class="sig-tag ${cls}">${label}</span> เข้า <b>${fmt.px(e)}</b> · SL <b class="c-sl">${fmt.px(sl)}</b> · TP <b class="c-tp">${tp.map((t) => fmt.px(t)).join(' / ')}</b></div>`;
+  // 2026-09-16 (her rule: no one-per-side cap, follow the theory): cards are grouped per OI wall — each wall
+  // is a two-way decision (reject → trade with the wall / break → trade through it); bias sets the size tag.
+  const roleTag = (r) => r === 'main' ? '<span class="role-tag main">ตามเทรนด์ · ไม้เต็ม</span>'
+    : r === 'counter' ? '<span class="role-tag counter">สวนเทรนด์ · ไม้ครึ่ง</span>'
+    : r === 'range' ? '<span class="role-tag range">ในกรอบ</span>' : '';
+  let lastLvl = null;
   const entries = (p.entries && p.entries.length)
-    ? `<div class="plan-entries"><div class="plan-eh">🎯 จุดเข้า · ฝั่งละ 1 ไม้หลัก</div>${p.entries.map((en) => {
+    ? `<div class="plan-entries"><div class="plan-eh">🎯 จุดเข้าตามทฤษฎี OI · ทุกด่าน = 2 ทาง (reject / break)</div>${p.entries.map((en) => {
         const tp = en.tp || [];
-        return `<div class="entry"><span class="entry-side ${en.side === 'short' ? 'b-short' : 'b-long'}">${en.side === 'short' ? 'SHORT' : 'LONG'}</span>` +
-          `<div class="entry-body"><div class="entry-title">${esc(en.title || '')} <span class="c-rr">${esc(en.rr || '')}</span></div>` +
+        let hdr = '';
+        if (en.level_label && en.level_label !== lastLvl) { hdr = `<div class="entry-level">▸ ${esc(en.level_label)}${en.level != null ? ` <i>· CFD ${fmt.px(en.level - b)}</i>` : ''}</div>`; lastLvl = en.level_label; }
+        return hdr + `<div class="entry ${en.branch === 'break' ? 'brk' : ''}"><span class="entry-side ${en.side === 'short' ? 'b-short' : 'b-long'}">${en.side === 'short' ? 'SHORT' : 'LONG'}</span>` +
+          `<div class="entry-body"><div class="entry-title">${esc(en.title || '')} <span class="c-rr">${esc(en.rr || '')}</span> ${roleTag(en.role)}</div>` +
           sigLine('Topstep·fut', 'ts', futOf(en.entry), futOf(en.sl), tp.map(futOf)) +
           sigLine('CFD·MT5', 'cfd', en.entry, en.sl, tp) +
           (en.add_on ? `<div class="entry-addon">↳ จุดเติม ไม้ 2 (${esc(en.add_on.label || '')}): เข้า <b>${fmt.px(en.add_on.entry)}</b> · SL <b class="c-sl">${fmt.px(en.add_on.sl)}</b> <span class="c-mut">(fut ${fmt.px(futOf(en.add_on.entry))})</span></div>` : '') +
