@@ -235,7 +235,7 @@ def top_walls(rows, side, ref, above, volmap, volmax, n=3):
             "strike": r["strike"],
             "oi": r[side],
             "intraday_vol": v,
-            "two_screen_confirm": bool(volmax and v >= 0.20 * volmax and v > 0),
+            "two_screen_confirm": bool(volmax and v >= max(0.20 * volmax, 20)),   # 2026-09-16: an absolute floor — 2 lots in the Asian morning are not a "second screen"
         })
     return out
 

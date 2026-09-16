@@ -1,5 +1,5 @@
 /* ============================================================
-   app.js v31 — three sections only:
+   app.js v32 — three sections only:
    (1) CME-style chart: Put/Call per strike (OI or intraday volume), IV smile,
        exact futures marker, the day's tradeable SD zones as shaded bands
    (2) the OI trade plan (plan.json)
@@ -483,14 +483,18 @@ function renderPlan(p) {
   const roleTag = (r) => r === 'main' ? '<span class="role-tag main">ตามเทรนด์ · ไม้เต็ม</span>'
     : r === 'counter' ? '<span class="role-tag counter">สวนเทรนด์ · ไม้ครึ่ง</span>'
     : r === 'range' ? '<span class="role-tag range">ในกรอบ</span>' : '';
-  let lastLvl = null;
+  let lastLvl = null, num = 0;
+  const hasBreak = (p.entries || []).some((e) => e.branch === 'break');
+  const ehTitle = hasBreak ? '🎯 จุดเข้าตามทฤษฎี OI · ทุกด่าน = จุดตัดสินใจ (reject / break เกิดได้ทางเดียว)' : '🎯 จุดเข้าตามทฤษฎี OI · วันนี้เฉพาะ reject ตามเทรนด์ (กฎทอง)';
   const entries = (p.entries && p.entries.length)
-    ? `<div class="plan-entries"><div class="plan-eh">🎯 จุดเข้าตามทฤษฎี OI · ทุกด่าน = 2 ทาง (reject / break)</div>${p.entries.map((en) => {
+    ? `<div class="plan-entries"><div class="plan-eh">${ehTitle}</div>${p.entries_intro ? `<div class="entry-intro">${esc(p.entries_intro)}</div>` : ''}${p.entries.map((en) => {
         const tp = en.tp || [];
         let hdr = '';
-        if (en.level_label && en.level_label !== lastLvl) { hdr = `<div class="entry-level">▸ ${esc(en.level_label)}${en.level != null ? ` <i>· CFD ${fmt.px(en.level - b)}</i>` : ''}</div>`; lastLvl = en.level_label; }
-        return hdr + `<div class="entry ${en.branch === 'break' ? 'brk' : ''}"><span class="entry-side ${en.side === 'short' ? 'b-short' : 'b-long'}">${en.side === 'short' ? 'SHORT' : 'LONG'}</span>` +
-          `<div class="entry-body"><div class="entry-title">${esc(en.title || '')} <span class="c-rr">${esc(en.rr || '')}</span> ${roleTag(en.role)}</div>` +
+        if (en.level_label && en.level_label !== lastLvl) { hdr = `<div class="entry-level">▸ ${esc(en.level_label)}${en.level != null ? ` <i>· CFD ${fmt.px(en.level - b)}</i>` : ''}${en.decision ? `<div class="entry-decision">${esc(en.decision)}</div>` : ''}</div>`; lastLvl = en.level_label; num = 0; }
+        num += 1;
+        const roleTagTxt = (en.role === 'counter' && en.size !== 'half') ? '<span class="role-tag counter">สวน bias · ไม้ปกติ</span>' : roleTag(en.role);
+        return hdr + `<div class="entry ${en.branch === 'break' ? 'brk' : ''}"><span class="entry-side ${en.side === 'short' ? 'b-short' : 'b-long'}">${['①', '②', '③'][num - 1] || ''} ${en.side === 'short' ? 'SHORT' : 'LONG'}</span>` +
+          `<div class="entry-body"><div class="entry-title">${esc(en.title || '')} <span class="c-rr">${esc(en.rr || '')}</span> ${roleTagTxt}</div>` +
           sigLine('Topstep·fut', 'ts', futOf(en.entry), futOf(en.sl), tp.map(futOf)) +
           sigLine('CFD·MT5', 'cfd', en.entry, en.sl, tp) +
           (en.add_on ? `<div class="entry-addon">↳ จุดเติม ไม้ 2 (${esc(en.add_on.label || '')}): เข้า <b>${fmt.px(en.add_on.entry)}</b> · SL <b class="c-sl">${fmt.px(en.add_on.sl)}</b> <span class="c-mut">(fut ${fmt.px(futOf(en.add_on.entry))})</span></div>` : '') +
