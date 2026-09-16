@@ -828,8 +828,8 @@ def build_plan(s):
     # with-trend branch first, reject before break. Each wall gets ONE decision sentence: the first H1
     # candle that touches it decides which branch is live; only one branch per wall can happen.
     plan_b = []
-    entries = sorted(entries, key=lambda e: (abs(e["level"] - fut), e["level"], 0 if e["role"] == "main" else 1,
-                                             0 if e["branch"] == "reject" else 1))
+    entries = sorted(entries, key=lambda e: (abs(e["level"] - fut), e["level"], 0 if e["branch"] == "reject" else 1,
+                                             0 if e["role"] == "main" else 1))   # ① reject ② break = the decision sentence's order
     by_lvl = {}
     for e in entries:
         by_lvl.setdefault(e["level"], []).append(e)

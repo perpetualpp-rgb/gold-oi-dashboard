@@ -492,7 +492,8 @@ function renderPlan(p) {
         let hdr = '';
         if (en.level_label && en.level_label !== lastLvl) { hdr = `<div class="entry-level">▸ ${esc(en.level_label)}${en.level != null ? ` <i>· CFD ${fmt.px(en.level - b)}</i>` : ''}${en.decision ? `<div class="entry-decision">${esc(en.decision)}</div>` : ''}</div>`; lastLvl = en.level_label; num = 0; }
         num += 1;
-        const roleTagTxt = (en.role === 'counter' && en.size !== 'half') ? '<span class="role-tag counter">สวน bias · ไม้ปกติ</span>' : roleTag(en.role);
+        const roleTagTxt = (en.role === 'counter' && en.branch === 'break') ? '<span class="role-tag counter">พลิกแผน · ไม้ครึ่ง</span>'
+          : (en.role === 'counter' && en.size !== 'half') ? '<span class="role-tag counter">สวน bias · ไม้ปกติ</span>' : roleTag(en.role);
         return hdr + `<div class="entry ${en.branch === 'break' ? 'brk' : ''}"><span class="entry-side ${en.side === 'short' ? 'b-short' : 'b-long'}">${['①', '②', '③'][num - 1] || ''} ${en.side === 'short' ? 'SHORT' : 'LONG'}</span>` +
           `<div class="entry-body"><div class="entry-title">${esc(en.title || '')} <span class="c-rr">${esc(en.rr || '')}</span> ${roleTagTxt}</div>` +
           sigLine('Topstep·fut', 'ts', futOf(en.entry), futOf(en.sl), tp.map(futOf)) +
