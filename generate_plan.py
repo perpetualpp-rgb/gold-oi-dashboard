@@ -625,6 +625,7 @@ def build_plan(s):
              "tp": [cfd(t) for t in tps], "rr": rr_txt, "note": note}
         d.update(extra)
         if rr < 2:      # book discipline RR ≥ 1:2 — flag it AND halve the size, don't silently assert it
+            d["note"] = d["note"].replace(" · ไม้เต็ม", " · ไม้ครึ่ง (RR ต่ำ)")
             d["note"] += f" · ⚠ RR {rr_txt} ต่ำกว่าเป้า 1:2 — ไม้ครึ่ง หรือข้าม setup นี้"
             d["size"] = "half"
             d["flag"] = "rr"
