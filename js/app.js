@@ -1,5 +1,5 @@
 /* ============================================================
-   app.js v30 — three sections only:
+   app.js v31 — three sections only:
    (1) CME-style chart: Put/Call per strike (OI or intraday volume), IV smile,
        exact futures marker, the day's tradeable SD zones as shaded bands
    (2) the OI trade plan (plan.json)
@@ -405,8 +405,8 @@ function renderChartFoot() {
   if (s) {
     let ageMin = null, asof = '';
     try { const t = Date.parse(s.at); ageMin = Math.round((Date.now() - t) / 60000); asof = new Date(t).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
-    const stale = ageMin != null && ageMin > 75;
-    parts.push(`ข้อมูล ณ ${asof}${ageMin != null ? (stale ? ` <span class="warn">(อายุ ${ageMin} นาที — bridge อาจหยุดส่ง)</span>` : ` (อายุ ${ageMin} นาที)`) : ''}`);
+    const stale = ageMin != null && ageMin > 7 * 60;                  // data is refreshed only for the 13:00 / 19:00 slots (her rule 2026-09-16)
+    parts.push(`ข้อมูล ณ ${asof}${ageMin != null ? (stale ? ` <span class="warn">(อายุ ${Math.round(ageMin / 60)} ชม. — ยังไม่มีรอบใหม่)</span>` : ` (อายุ ${ageMin} นาที · อัปเดตเฉพาะรอบ 13:00 / 19:00)`) : ''}`);
     parts.push(`${esc(s.source || 'Barchart (CME)')}`);
     let exp = '';
     try { exp = new Date(s.expiry).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) {}
@@ -431,7 +431,7 @@ function renderChartFoot() {
 // ═══════════════════════════════════════════════════════════════
 const _thaiYMD = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
 const _thaiWeekday = (ms) => new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Bangkok', weekday: 'short' }).format(new Date(ms));
-const PLAN_SLOTS = [[21, 30], [19, 0], [13, 0]];
+const PLAN_SLOTS = [[19, 0], [13, 0]];   // her rule 2026-09-16: two slots a day, data refreshed only for them
 function expectedSlotTs(graceMin) {
   const nowMs = Date.now(), cutoff = nowMs - graceMin * 60000;
   for (let back = 0; back < 6; back++) {
@@ -459,7 +459,7 @@ function renderPlan(p) {
   const el = $('plan');
   if (!p || !p.updated_at) {
     el.innerHTML = `<div class="plan-head"><span class="plan-title">📋 แผนเทรดจาก OI</span></div>` +
-      `<div class="plan-empty">${esc((p && p.headline) || 'ยังไม่มีแผน — ระบบสร้างแผนอัตโนมัติ 13:00 / 19:00 / 21:30 เมื่อมีข้อมูลสด')}</div>`;
+      `<div class="plan-empty">${esc((p && p.headline) || 'ยังไม่มีแผน — ระบบสร้างแผนอัตโนมัติ 13:00 / 19:00 เมื่อมีข้อมูลสด')}</div>`;
     return;
   }
   state.plan = p;
@@ -566,11 +566,10 @@ function ictParts() {
   const [h, m] = t.split(':').map(Number);
   return { date: d.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }), wd: d.toLocaleDateString('en-US', { timeZone: 'Asia/Bangkok', weekday: 'short' }), hm: h * 60 + m };
 }
-const SLOT_ORDER = { '13:00': 1, '19:00': 2, '21:30': 3 };
-const SLOT_MIN = { '13:00': 780, '19:00': 1140, '21:30': 1290 };
+const SLOT_ORDER = { '13:00': 1, '19:00': 2 };
+const SLOT_MIN = { '13:00': 780, '19:00': 1140 };
 function expectedSlot(t) {
   if (t.wd === 'Sat' || t.wd === 'Sun') return null;
-  if (t.hm >= 1290) return '21:30';
   if (t.hm >= 1140) return '19:00';
   if (t.hm >= 780) return '13:00';
   return null;

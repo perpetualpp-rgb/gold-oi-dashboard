@@ -50,7 +50,8 @@ MIN_OI = 300              # ignore brand-new/empty series
 STALE_MIN = 60            # Telegram warning when the browser stops sending for this long
 REPO_DIR = os.path.join(ROOT, "gold-oi-dashboard")
 LIVE_DIR = os.path.join(REPO_DIR, "data", "live")   # published to the website (GitHub Pages)
-PUBLISH_MIN = 30          # git push the live files at most this often (Pages rebuild budget)
+PUBLISH_MIN = 30          # git push the live files at most this often (Pages rebuild budget) — only when LIVE_PUSH
+LIVE_PUSH = os.environ.get("GOLD_LIVE_PUSH", "0") == "1"   # her rule 2026-09-16: no 30-min site updates; the site gets data with the 13:00/19:00 plan push
 import subprocess
 PUB_LOCK = threading.Lock()
 
@@ -604,6 +605,8 @@ def publish_live(status, texts):
     pub = dict(status, source="Barchart (CME data, ~10-15 min delay)")
 
     json.dump(pub, open(os.path.join(LIVE_DIR, "status.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    if not LIVE_PUSH:                                 # files are kept current locally; generate_plan's push carries them at slot time
+        return
     if time.time() - STATE.get("last_publish", 0) < PUBLISH_MIN * 60:
         return
     STATE["last_publish"] = time.time()

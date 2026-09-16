@@ -769,7 +769,7 @@ def build_plan(s):
 
     now = _bkk_now()
     hm = now.hour * 60 + now.minute
-    session = "13:00" if hm < 960 else "19:00" if hm < 1275 else "21:30"   # <16:00 / <21:15 / else
+    session = "13:00" if hm < 960 else "19:00"   # <16:00 / else — her rule 2026-09-16: two slots only (13:00, 19:00), no 21:30
     return {
         "updated_at": now.isoformat(timespec="minutes"),
         "session": session,
@@ -1177,8 +1177,8 @@ def plan_is_fresh():
         from datetime import datetime
         plan_ts = datetime.fromisoformat(cur["updated_at"]).timestamp()
         now = _bkk_now()
-        # most recent scheduled slot today that is already past (13:00 / 19:00 / 21:30)
-        todays = [now.replace(hour=h, minute=m, second=0, microsecond=0) for h, m in [(13, 0), (19, 0), (21, 30)]]
+        # most recent scheduled slot today that is already past (13:00 / 19:00)
+        todays = [now.replace(hour=h, minute=m, second=0, microsecond=0) for h, m in [(13, 0), (19, 0)]]   # 2026-09-16: 21:30 slot removed
         past = [s for s in todays if s <= now]
         slot = max(past) if past else (now - timedelta(days=1)).replace(hour=21, minute=30, second=0, microsecond=0)
         return plan_ts >= slot.timestamp()
