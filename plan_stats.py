@@ -295,7 +295,10 @@ def compute_stats():
     hot = sorted(intr["rows"], key=lambda r: r["call"] + r["put"], reverse=True)[:5]
 
     magnet = max(rows, key=lambda r: r["call"] + r["put"]) if rows else None
-    oimean = oi_weighted_mean(rows)
+    # OI centre of gravity: on the expiry day (DTE < 1) only strikes inside ±3σ matter — far-OTM calls
+    # $150+ away die at 12:30 CT and must not pull the mean (2026-09-16 audit: mean 4392 vs magnet 4250)
+    _near = [r for r in rows if sd and abs(r["strike"] - fut) <= 3 * sd] if (oi.get("dte") or 9) < 1 else rows
+    oimean = oi_weighted_mean(_near or rows)
 
     stats = {
         "ts_bkk": datetime.now(tz_bkk()).isoformat(timespec="minutes"),
@@ -316,6 +319,7 @@ def compute_stats():
         "intraday_totals": {"call": int(intr["totalCall"]), "put": int(intr["totalPut"])},
         "all_call_walls": [{"strike": r["strike"], "oi": r["call"]} for r in rows if r["strike"] > fut and r["call"] >= 100],
         "all_put_walls": [{"strike": r["strike"], "oi": r["put"]} for r in rows if r["strike"] < fut and r["put"] >= 100],
+        "intraday_put_total": intr.get("totalPut"), "intraday_call_total": intr.get("totalCall"),
         "resistance_call_walls": top_walls(rows, "call", fut, True, volmap, callvolmax),
         "support_put_walls": top_walls(rows, "put", fut, False, volmap, putvolmax),
         "call_tail": tail(rows, "call", fut, True),

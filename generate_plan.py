@@ -208,7 +208,7 @@ def _dte_as_of_anchor(header_days, anchor):
         return max(0.05, min(float(header_days), 10.0))
     try:
         from zoneinfo import ZoneInfo
-        et = anchor.astimezone(ZoneInfo("America/New_York"))
+        et = anchor.astimezone(ZoneInfo("America/Chicago"))   # CME terminates weekly gold options 12:30 CT
         anchor_min = et.hour * 60 + et.minute
     except Exception:
         anchor_min = ((SD_ANCHOR_HOUR - 11) % 24) * 60        # rough EDT (ICT−11) fallback
@@ -537,37 +537,78 @@ def build_plan(s):
     res_last = min(res_last, round(fut + 2.5 * sd_day))
     sup_last = max(sup_last, round(fut - 2.5 * sd_day))
     m1, p1 = round(fut - sd), round(fut + sd)
-    # the far level: snap the σ-cap to the nearest real wall within $10 so "ท้าย OI" is never a made-up number
-    def _snap(px, walls_list):
-        near = [w for w in walls_list if abs(w["strike"] - px) <= 10]
-        return (max(near, key=lambda w: w["oi"])["strike"], max(near, key=lambda w: w["oi"])["oi"]) if near else (px, 0)
-    res_last, res_last_oi = _snap(res_last, s.get("all_call_walls", []))
-    sup_last, sup_last_oi = _snap(sup_last, s.get("all_put_walls", []))
-    res_last, sup_last = int(res_last), int(sup_last)
-    far_up = f"กำแพง Call {res_last} (OI {res_last_oi})" if res_last_oi else f"{res_last} (+2.5σ)"
-    far_dn = f"กำแพง Put {sup_last} (OI {sup_last_oi})" if sup_last_oi else f"{sup_last} (−2.5σ)"
+    if sd < 5:                                         # a mis-transcribed Vol/DTE would print ±40σ labels and $1 targets
+        raise ValueError(f"sigma degenerate ({sd}) — check the Vol/DTE header of OIData.txt")
+    # ── OI ZONES (2026-09-16): walls of one side closer than max(buf, $25) to each other form ONE zone —
+    # walked over EVERY significant wall (≥100), not just the 3 nearest (the 393/413-contract walls at
+    # 4395/4400 sat 20-25 pts above the 4375 "edge" and were invisible). Entry = near edge, SL behind the
+    # far edge, break trigger = H1 close beyond the far edge. ──
+    buf = max(round(0.6 * sd_day) if regime == "high" else round(0.4 * sd_day), 12)
+    zone_gap = max(buf, 20)                          # 20, not 25: on a $25 strike grid 25 would chain every neighbour forever
+    _cmax = max((w["oi"] for w in s.get("all_call_walls", [])), default=0)
+    _pmax = max((w["oi"] for w in s.get("all_put_walls", [])), default=0)
+    # zone members = walls that pass the same rule as the plan's walls (≥20% of the side's max AND ≥100)
+    calls_all = sorted(({"strike": int(w["strike"]), "oi": int(w["oi"])} for w in s.get("all_call_walls", [])
+                        if w["oi"] >= max(0.2 * _cmax, OI_SIGNIFICANT)), key=lambda w: w["strike"])
+    puts_all = sorted(({"strike": int(w["strike"]), "oi": int(w["oi"])} for w in s.get("all_put_walls", [])
+                       if w["oi"] >= max(0.2 * _pmax, OI_SIGNIFICANT)), key=lambda w: -w["strike"])
+    res_zone_hi, res_zone_oi = res1, 0
+    for w in calls_all:
+        if w["strike"] < res1:
+            continue
+        if w["strike"] - res_zone_hi <= zone_gap:
+            res_zone_hi = w["strike"]
+            res_zone_oi += int(w["oi"])
+        elif w["strike"] > res_zone_hi:
+            break
+    sup_zone_lo, sup_zone_oi = sup1, 0
+    for w in puts_all:
+        if w["strike"] > sup1:
+            continue
+        if sup_zone_lo - w["strike"] <= zone_gap:
+            sup_zone_lo = w["strike"]
+            sup_zone_oi += int(w["oi"])
+        elif w["strike"] < sup_zone_lo:
+            break
+    res_zone_txt = f"{res1}" if res_zone_hi == res1 else f"{res1}–{res_zone_hi}"
+    sup_zone_txt = f"{sup1}" if sup_zone_lo == sup1 else f"{sup_zone_lo}–{sup1}"
+    # the next gate beyond each zone = the nearest significant wall beyond it inside the day's reach (3σ);
+    # else the σ-cap (never a made-up "ท้าย OI")
+    nxt_up = next((w for w in calls_all if w["strike"] > res_zone_hi and w["strike"] - fut <= 3 * sd_day), None)
+    nxt_dn = next((w for w in puts_all if w["strike"] < sup_zone_lo and fut - w["strike"] <= 3 * sd_day), None)
+    res_last = int(nxt_up["strike"]) if nxt_up else int(min(res_last, round(res_zone_hi + 2 * sd_day)))
+    sup_last = int(nxt_dn["strike"]) if nxt_dn else int(max(sup_last, round(sup_zone_lo - 2 * sd_day)))
+    if res_last <= res_zone_hi:
+        res_last = round(res_zone_hi + 2 * sd_day)
+    if sup_last >= sup_zone_lo:
+        sup_last = round(sup_zone_lo - 2 * sd_day)
+    far_up = f"กำแพง Call {res_last} (OI {nxt_up['oi']})" if nxt_up else f"{res_last} (+2σ จากโซน ไม่มีกำแพงในระยะ)"
+    far_dn = f"กำแพง Put {sup_last} (OI {nxt_dn['oi']})" if nxt_dn else f"{sup_last} (−2σ จากโซน ไม่มีกำแพงในระยะ)"
     res2 = res[1]["price"] if len(res) > 1 else round(res1 + sd)
     sup2 = sup[1]["price"] if len(sup) > 1 else round(sup1 - sd)
     up2 = p1 if p1 > res1 else res2                    # second target must lie beyond the first
     dn2 = m1 if m1 < sup1 else sup2
 
     # ── scenarios (if-then, with real levels; honour "don't chase / wait for H1 wick") ──
+    fc = lambda x: f"{x} (CFD {cfd(x)})"
     if scen_bias == "short":
         scen = [
-            f"เด้งขึ้นชนแนวต้าน {res1} แล้วเกิดไส้เทียน H1 reject → จังหวะ short ตามเทรนด์ลง เป้า {sup1} → {dn2}",
-            f"หลุด {sup1} + วอลุ่มฝั่งลงพุ่ง (ของจริง ห้ามสวน) → ไหลต่อหา {far_dn}",
-            f"รีบาวน์เฉพาะครบเงื่อนไข: ราคาแตะ {far_dn} + IV เริ่มหักหัวลง + ไส้เทียน H1 → long สั้นสวน (เสี่ยงสูง)",
+            f"เด้งขึ้นชนโซนต้าน {fc(res1)} แล้วเกิดไส้เทียน H1 reject → short ตามเทรนด์ลง เป้า {fc(sup1)} → {dn2}",
+            f"H1 ปิดใต้ {fc(sup_zone_lo)} (ขอบล่างโซน Put {sup_zone_txt}) + วอลุ่มฝั่งลงพุ่ง (ของจริง ห้ามสวน) → รอ retest แล้วไหลต่อหา {far_dn}",
+            f"H1 ปิดเหนือ {fc(res_zone_hi)} (ขอบบนโซน Call {res_zone_txt}) + วอลุ่ม = bias เช้าโมฆะ → พลิกเป็น long ไม้ครึ่ง เป้า {far_up}",
+            f"รีบาวน์สวนเฉพาะครบเงื่อนไข: ราคาแตะ {far_dn} + IV เริ่มหักหัวลง + ไส้เทียน H1 → long สั้น (ไม้ครึ่ง)",
         ]
     elif scen_bias == "long":
         scen = [
-            f"ย่อลงหาแนวรับ {sup1} แล้วเกิดไส้เทียน H1 reject (ทิ้งไส้ล่าง) → long ตามเทรนด์ขึ้น เป้า {res1} → {up2}",
-            f"ทะลุ {res1} + วอลุ่มฝั่งขึ้นพุ่ง (Gamma squeeze ของจริง ห้ามสวน) → ไปต่อหา {far_up}",
-            f"กลับตัวลงเฉพาะครบเงื่อนไข: ราคาแตะ {far_up} + IV หักหัวลง + ไส้เทียน H1 → short สั้นสวน (เสี่ยงสูง)",
+            f"ย่อลงหาโซนรับ {fc(sup1)} แล้วเกิดไส้เทียน H1 reject (ทิ้งไส้ล่าง) → long ตามเทรนด์ขึ้น เป้า {fc(res1)} → {up2}",
+            f"H1 ปิดเหนือ {fc(res_zone_hi)} (ขอบบนโซน Call {res_zone_txt}) + วอลุ่มฝั่งขึ้นพุ่ง (Gamma squeeze ของจริง ห้ามสวน) → รอ retest แล้วไปต่อหา {far_up}",
+            f"H1 ปิดใต้ {fc(sup_zone_lo)} (ขอบล่างโซน Put {sup_zone_txt}) + วอลุ่ม = bias เช้าโมฆะ → พลิกเป็น short ไม้ครึ่ง เป้า {far_dn}",
+            f"กลับตัวลงสวนเฉพาะครบเงื่อนไข: ราคาแตะ {far_up} + IV หักหัวลง + ไส้เทียน H1 → short สั้น (ไม้ครึ่ง)",
         ]
     else:
         scen = [
-            f"กรอบหลัก {sup1}–{res1}: ชน {res1} + ไส้เทียน H1 → short สั้น / ลงแตะ {sup1} + ไส้เทียน H1 → long สั้น (เล่นในกรอบ RR ≥ 1:2)",
-            f"ทะลุ {res1} + วอลุ่มพุ่ง (Gamma squeeze ของจริง ห้ามสวน) → ไปต่อหา {far_up}; หลุด {sup1} + วอลุ่มพุ่ง (ของจริง ห้ามสวน) → ลงหา {far_dn}",
+            f"กรอบหลัก {fc(sup1)}–{fc(res1)}: ชนโซนต้าน + ไส้เทียน H1 → short สั้น / แตะโซนรับ + ไส้เทียน H1 → long สั้น (เล่นในกรอบ RR ≥ 1:2)",
+            f"H1 ปิดเหนือ {fc(res_zone_hi)} + วอลุ่มพุ่ง (Gamma squeeze ของจริง ห้ามสวน) → ไปต่อหา {far_up}; H1 ปิดใต้ {fc(sup_zone_lo)} + วอลุ่มพุ่ง (ของจริง ห้ามสวน) → ลงหา {far_dn}",
             "ยังไม่เลือกข้างชัด — รอ breakout พร้อมวอลุ่มยืนยัน อย่าไล่กลางกรอบ",
         ]
 
@@ -575,18 +616,18 @@ def build_plan(s):
     # SL buffer behind the wall, wider when volatile (book: high vol => widen SL).
     # Scaled by the DAY's sigma = the locked SD ladder's 1SD when available: the option sigma of a
     # multi-day series (Friday weekly, DTE 3.5) is a WEEKLY range and blew SL out to $39 (2026-09-08).
-    buf = max(round(0.6 * sd_day) if regime == "high" else round(0.4 * sd_day), 12)
-
     def setup(side, title, e, sl, tps, note, **extra):
-        tps = [t for k, t in enumerate(tps) if t not in tps[:k]]          # never TP1 == TP2
+        tps = [t for k, t in enumerate(tps) if all(abs(t - u) > 5 for u in tps[:k])]   # never two TPs within $5
         risk_pts = abs(sl - e) or 1
         rr = abs(e - tps[0]) / risk_pts
         rr_txt = ("≈1:" + f"{rr:.1f}".rstrip("0").rstrip("."))
-        if rr < 2:      # book discipline RR ≥ 1:2 — flag it, don't silently assert it
-            note += f" · ⚠ RR {rr_txt} ต่ำกว่าเป้า 1:2 — ลดขนาดไม้ หรือข้าม setup นี้"
         d = {"side": side, "title": title, "entry": cfd(e), "sl": cfd(sl),
              "tp": [cfd(t) for t in tps], "rr": rr_txt, "note": note}
         d.update(extra)
+        if rr < 2:      # book discipline RR ≥ 1:2 — flag it AND halve the size, don't silently assert it
+            d["note"] += f" · ⚠ RR {rr_txt} ต่ำกว่าเป้า 1:2 — ไม้ครึ่ง หรือข้าม setup นี้"
+            d["size"] = "half"
+            d["flag"] = "rr"
         return d
 
     # HER RULE 2026-09-16 ("ไม่จำเป็นต้องมีข้างละ 1 ออเดอร์ แต่ควรตรงตามทฤษฎี"): the plan lists exactly
@@ -597,24 +638,8 @@ def build_plan(s):
     # is the near edge, the SL sits behind the far edge (book: SL behind the OI zone, MM hunts stops between
     # walls), the break trigger is an H1 close beyond the far edge. Counter-trend reject = half size only
     # on a strong/high-vol day (book: สวนเทรนด์วันแรง = ไม้ครึ่ง; normal vol = mean reversion is allowed).
-    zone_gap = max(buf, 25)
-    res_zone_hi = res1
-    for w in res[1:]:
-        if w["price"] - res_zone_hi <= zone_gap:
-            res_zone_hi = w["price"]
-        else:
-            break
-    sup_zone_lo = sup1
-    for w in sup[1:]:
-        if sup_zone_lo - w["price"] <= zone_gap:
-            sup_zone_lo = w["price"]
-        else:
-            break
-    res_zone_txt = f"{res1}" if res_zone_hi == res1 else f"{res1}–{res_zone_hi}"
-    sup_zone_txt = f"{sup1}" if sup_zone_lo == sup1 else f"{sup_zone_lo}–{sup1}"
-    brk_up_tp = res_last if res_last > res_zone_hi else round(res_zone_hi + 2 * sd_day)
-    brk_dn_tp = sup_last if sup_last < sup_zone_lo else round(sup_zone_lo - 2 * sd_day)
     strong_day = regime == "high" or abs(mom) >= 0.5
+    brk_up_tp, brk_dn_tp = res_last, sup_last          # the next gate beyond each zone (see far_up/far_dn)
 
     def role_of(side):
         if trend_dir is None:
@@ -622,15 +647,17 @@ def build_plan(s):
         return "main" if side == trend_dir else "counter"
 
     def size_of(role, branch):
+        if regime == "high":                                 # book: high vol → cut size ≥ half on every trade
+            return "half"
         if role == "main" or role == "range":
             return "full"
         return "half" if (branch == "break" or strong_day) else "full"
 
     def size_txt(role, branch, size):
         if role == "main":
-            return "ตามเทรนด์ · ไม้เต็ม"
+            return "ตามเทรนด์ · " + ("ไม้ครึ่ง (regime สูง)" if size == "half" else "ไม้เต็ม")
         if role == "range":
-            return "เล่นในกรอบ · TP กำแพงตรงข้าม" if branch == "reject" else "ตามการทะลุ · เป้ากำแพงถัดไป"
+            return ("เล่นในกรอบ · TP1 ≈1σ · TP2 กำแพงตรงข้าม" if branch == "reject" else "ตามการทะลุ · เป้ากำแพงถัดไป") + (" · ไม้ครึ่ง (regime สูง)" if size == "half" else "")
         if branch == "break":
             return "พลิกแผน (ตำรา Step 9: ทะลุพร้อมวอลุ่ม = bias เช้าโมฆะ) · ไม้ครึ่ง"
         return ("สวนเทรนด์วันแรง · ไม้ครึ่ง + TP สั้น (ตำรา)" if size == "half"
@@ -656,8 +683,8 @@ def build_plan(s):
         return ""
 
     exp_note = " · ปิดไม้ก่อน 00:30 ICT (ออปชั่นหมดอายุ 12:30 CT)" if s["dte"] < 1 else ""
-    res_lbl = f"ด่าน Call {res_zone_txt} ({res[0]['note']})" if res else f"ด่าน +1σ {res1}"
-    sup_lbl = f"ด่าน Put {sup_zone_txt} ({sup[0]['note']})" if sup else f"ด่าน −1σ {sup1}"
+    res_lbl = (f"ด่าน Call {res_zone_txt} (OI รวม {res_zone_oi} · {res[0]['note']})" if res else f"ด่าน +1σ {res1}")
+    sup_lbl = (f"ด่าน Put {sup_zone_txt} (OI รวม {sup_zone_oi} · {sup[0]['note']})" if sup else f"ด่าน −1σ {sup1}")
     cand = []
 
     def add(side, title, e, sl, tps, note, **extra):
@@ -667,52 +694,47 @@ def build_plan(s):
         cand.append(setup(side, title, e, sl, tps, note, role=role, size=size, **extra))
 
     # ── wall above (Call OI zone): hold → short; break up → long (gamma squeeze) ──
-    short_tps = [sup1, sup2] if role_of("short") == "main" else [max(sup1, round(res1 - sd_day)), sup1]
+    short_tps = [max(sup1, round(res1 - sd_day)), sup1]          # TP1 ≈ 1σ (day), TP2 = opposite wall
     add("short", "Short รีเจกต์แนวต้าน", res1, res_zone_hi + buf, short_tps,
         f"รอเด้งขึ้น {cfd(res1)} (fut {res1}) + ไส้เทียน H1 reject แล้วค่อย Short · SL หลังโซน Call {res_zone_txt}"
         + (f" · ถ้าไส้ reject เกิดที่ขอบบน {cfd(res_zone_hi)} ให้เข้าตรงนั้น (SL เท่าเดิม RR ดีกว่า)" if res_zone_hi > res1 else "")
         + oi_growth_txt(res1, "call"),
         level=res1, level_label=res_lbl, branch="reject")
-    add("long", "Long ตามการทะลุ", res_zone_hi, sup_zone_lo - buf if res_zone_hi - sup_zone_lo <= 2 * sd_day else res1 - buf, [brk_up_tp],
+    add("long", "Long ตามการทะลุ", res_zone_hi, res1 - buf, [brk_up_tp],
         f"ถ้า H1 ปิดเหนือ {cfd(res_zone_hi)} (fut {res_zone_hi} ขอบบนโซน Call {res_zone_txt}) + วอลุ่ม Intraday ฝั่ง Call พุ่ง + IV ขยับขึ้น "
         f"→ รอ retest {cfd(res_zone_hi)} แล้วค่อย Long (Gamma squeeze ของจริง ห้ามสวน) · ด่านถัดไป {far_up}"
         + oi_growth_txt(res1, "call"),
         level=res1, level_label=res_lbl, branch="break")
     # ── wall below (Put OI zone): hold → long; break down → short ──
-    long_tps = [res1, res2] if role_of("long") == "main" else [min(res1, round(sup1 + sd_day)), res1]
+    long_tps = [min(res1, round(sup1 + sd_day)), res1]
     add("long", "Long รีเจกต์แนวรับ", sup1, sup_zone_lo - buf, long_tps,
         f"รอย่อลง {cfd(sup1)} (fut {sup1}) + ไส้เทียน H1 reject (ทิ้งไส้ล่าง) แล้วค่อย Long · SL หลังโซน Put {sup_zone_txt}"
         + (f" · ถ้าไส้ reject เกิดที่ขอบล่าง {cfd(sup_zone_lo)} ให้เข้าตรงนั้น (SL เท่าเดิม RR ดีกว่า)" if sup_zone_lo < sup1 else "")
         + oi_growth_txt(sup1, "put"),
         level=sup1, level_label=sup_lbl, branch="reject")
-    add("short", "Short ตามการหลุดแนว", sup_zone_lo, res_zone_hi + buf if res_zone_hi - sup_zone_lo <= 2 * sd_day else sup1 + buf, [brk_dn_tp],
+    add("short", "Short ตามการหลุดแนว", sup_zone_lo, sup1 + buf, [brk_dn_tp],
         f"ถ้า H1 ปิดใต้ {cfd(sup_zone_lo)} (fut {sup_zone_lo} ขอบล่างโซน Put {sup_zone_txt}) + วอลุ่ม Intraday ฝั่ง Put พุ่ง "
         f"→ รอ retest {cfd(sup_zone_lo)} แล้วค่อย Short (ของจริง ห้ามสวน) · ด่านถัดไป {far_dn}: ไส้ H1 reject ที่นั่น = Long หลัก / ปิดใต้ = ไม่มีกำแพงแล้ว ถอย"
         + oi_growth_txt(sup1, "put"),
         level=sup1, level_label=sup_lbl, branch="break")
-    # ── the day's BIGGEST wall on each side, when it is not the near zone but still inside the day's reach:
-    #    the book's main wall / magnet (Step 2 "อันที่ใหญ่สุด = กำแพงหลัก") — reject-only card ──
-    for side_, lst, above in (("short", s.get("all_call_walls", []), True), ("long", s.get("all_put_walls", []), False)):
-        reach = [w for w in lst if (w["strike"] > res_zone_hi + zone_gap if above else w["strike"] < sup_zone_lo - zone_gap)
-                 and abs(w["strike"] - fut) <= 3.0 * sd_day and w["oi"] >= OI_SIGNIFICANT]   # her realistic zone = ±3σ
-        if not reach:
+    # ── the next gate beyond each zone (inside the day's 3σ reach): a reject-only card that opens once the
+    #    first wall has decided (book: 2-3 walls per side; "ท้าย OI" / the day's biggest wall are such gates) ──
+    for side_, nxt, above in (("short", nxt_up, True), ("long", nxt_dn, False)):
+        if not nxt:
             continue
-        big = max(reach, key=lambda w: w["oi"])
-        near_oi = res[0] if above else sup[0]
-        if big["oi"] < 1.5 * max(1, int(s["resistance_call_walls"][0]["oi"] if above and s["resistance_call_walls"] else s["support_put_walls"][0]["oi"] if (not above) and s["support_put_walls"] else 1)):
-            continue                                       # only when it clearly out-sizes the near wall
-        k = int(big["strike"])
+        k = int(nxt["strike"])
         zn = _sigma_note(k, fut, sd)
+        big = " หนาสุดของวัน" if nxt["oi"] == max((w["oi"] for w in (calls_all if above else puts_all)), default=0) else ""
         if above:
-            add("short", "Short รีเจกต์กำแพงใหญ่", k, k + buf, ([round(k - sd_day), res_zone_hi] if k - sd_day > res_zone_hi + 10 else [res_zone_hi]),
-                f"ถ้าราคาไปถึง {cfd(k)} (fut {k}) + ไส้เทียน H1 reject → Short · กำแพง Call หนาสุดของวัน OI {big['oi']}"
+            add("short", "Short รีเจกต์ด่านถัดไป", k, k + buf, [round(k - sd_day), res1],       # TP back toward the Mean (1σ, then the zone's near edge)
+                f"เปิดหลังด่านแรกตัดสินแล้ว: ถ้าราคาขึ้นถึง {cfd(k)} (fut {k}) + ไส้เทียน H1 reject → Short · กำแพง Call OI {nxt['oi']}{big}"
                 + oi_growth_txt(k, "call"),
-                level=k, level_label=f"ด่านใหญ่ Call {k} (OI {big['oi']} หนาสุดของวัน · {zn})", branch="reject")
+                level=k, level_label=f"ด่านถัดไป Call {k} (OI {nxt['oi']}{big} · {zn})", branch="reject")
         else:
-            add("long", "Long รีเจกต์กำแพงใหญ่", k, k - buf, ([round(k + sd_day), sup_zone_lo] if k + sd_day < sup_zone_lo - 10 else [sup_zone_lo]),
-                f"ถ้าราคาลงถึง {cfd(k)} (fut {k}) + ไส้เทียน H1 reject (ทิ้งไส้ล่าง) → Long · กำแพง Put หนาสุดของวัน OI {big['oi']}"
+            add("long", "Long รีเจกต์ด่านถัดไป", k, k - buf, [round(k + sd_day), sup1],
+                f"เปิดหลังด่านแรกตัดสินแล้ว: ถ้าราคาลงถึง {cfd(k)} (fut {k}) + ไส้เทียน H1 reject (ทิ้งไส้ล่าง) → Long · กำแพง Put OI {nxt['oi']}{big}"
                 + oi_growth_txt(k, "put"),
-                level=k, level_label=f"ด่านใหญ่ Put {k} (OI {big['oi']} หนาสุดของวัน · {zn})", branch="reject")
+                level=k, level_label=f"ด่านถัดไป Put {k} (OI {nxt['oi']}{big} · {zn})", branch="reject")
 
     entries, dropped = [], []
     for e in cand:
@@ -723,7 +745,7 @@ def build_plan(s):
 
     # ── $50 Grid (book Ch6): round-level Block-Trade S/R, flag the ones on a dense OI wall ──
     walls = {}                                     # strike -> OI count (her ≥100-contract rule needs sizes)
-    for w in s["resistance_call_walls"] + s["support_put_walls"]:
+    for w in s["resistance_call_walls"] + s["support_put_walls"] + s.get("all_call_walls", []) + s.get("all_put_walls", []):
         walls[w["strike"]] = max(walls.get(w["strike"], 0), int(w.get("oi", 0) or 0))
     for tw in (magnet, call_tail, put_tail):
         if tw.get("strike"):
@@ -824,8 +846,8 @@ def build_plan(s):
     if g_up and g_dn:
         bits.append(f"$50 Grid (Block Trade): ต้านใกล้สุด {g_up['price']} (CFD {g_up['cfd']}{' ★OI' if g_up['oi'] else ''}) / รับใกล้สุด {g_dn['price']} (CFD {g_dn['cfd']}{' ★OI' if g_dn['oi'] else ''}) — ทุกระดับ $50/$100 = ด่าน MM hedge")
     # ── ORDER OF READING (her rule 2026-09-16 replaces the 2026-09-08 one-per-side cap): cards are read
-    # per wall — the wall nearest to price first (ties: lower strike first), and within a wall the
-    # with-trend branch first, reject before break. Each wall gets ONE decision sentence: the first H1
+    # per wall — the wall nearest to price first (ties: lower strike first), and within a wall reject
+    # before break (the decision sentence's ① / ②), with-trend first among equals. Each wall gets ONE decision sentence: the first H1
     # candle that touches it decides which branch is live; only one branch per wall can happen.
     plan_b = []
     entries = sorted(entries, key=lambda e: (abs(e["level"] - fut), e["level"], 0 if e["branch"] == "reject" else 1,
@@ -837,17 +859,21 @@ def build_plan(s):
         rj = next((x for x in grp if x["branch"] == "reject"), None)
         bk = next((x for x in grp if x["branch"] == "break"), None)
         parts = []
+        dflt = " (ตามทิศวัน)" if no_fade else " (ค่าเริ่มต้นตาม bias)"
         if rj:
-            parts.append(f"①ไส้ H1 reject → {'LONG' if rj['side'] == 'long' else 'SHORT'}"
-                         + (" (ค่าเริ่มต้นตาม bias)" if rj["role"] == "main" else ""))
+            parts.append(f"①ไส้ reject ที่ขอบ → {'LONG' if rj['side'] == 'long' else 'SHORT'}"
+                         + (dflt if rj["role"] == "main" else ""))
         if bk:
-            parts.append(f"②H1 ปิดทะลุ + วอลุ่ม → {'LONG' if bk['side'] == 'long' else 'SHORT'}"
+            edge_px = bk["entry"]
+            parts.append(f"②H1 ปิด{'เหนือ' if bk['side'] == 'long' else 'ใต้'}ขอบ{'บน' if bk['side'] == 'long' else 'ล่าง'} {edge_px:g} + วอลุ่ม → {'LONG' if bk['side'] == 'long' else 'SHORT'}"
                          + (" ตามเทรนด์" if bk["role"] == "main" else " พลิกแผน"))
-        dec = "ตัดสินที่แท่ง H1 แรกที่แตะ: " + " / ".join(parts) + (" · เกิดได้ทางเดียว" if rj and bk else "")
+        elif rj:
+            parts.append("②ปิดทะลุ = ไม่มีเป้าในระยะวันนี้ → ถอย ไม่มีออเดอร์")
+        dec = "แท่ง H1 ที่แตะโซน: " + " / ".join(parts) + " / ปิดในโซน = รอแท่งถัดไป" + (" · เกิดได้ทางเดียว" if rj and bk else "")
         for e in grp:
             e["decision"] = dec
     lv_sorted = sorted(by_lvl, key=lambda L: (abs(L - fut), L))
-    below = [L for L in lv_sorted if L < fut]
+    below = [L for L in lv_sorted if L <= fut]
     above = [L for L in lv_sorted if L > fut]
     intro = (f"ราคาตอนนี้ {cfd(fut)} (fut {fut:g}) อยู่ระหว่างด่าน — ด่านแรก = "
              + (f"{cfd(below[0])} (ลง)" if below else "ไม่มีกำแพงด้านล่างในระยะ")
@@ -857,6 +883,12 @@ def build_plan(s):
         cause = "IV ยังพุ่ง" if golden_gate else "regime สูง + วันมีทิศ"
         bits.append(f"กฎทอง ({cause} ห้ามสวนเทรนด์): ตัด setup สวนเทรนด์ออกจากแผนวันนี้ — " + " · ".join(dropped)
                     + " (กลับมาได้เมื่อ IV หักหัวลง)")
+    try:
+        _pv, _cv = int(s.get("intraday_put_total") or 0), int(s.get("intraday_call_total") or 0)
+        if not any(w.get("two_screen_confirm") for w in s["resistance_call_walls"] + s["support_put_walls"]):
+            bits.append(f"วอลุ่ม intraday ยังบาง (Put {_pv} / Call {_cv}) — ยังไม่มีกำแพงไหนยืนยัน 2 จอ รอรอบ US")
+    except Exception:
+        pass
     if s["dte"] < 1:
         bits.append("⏰ ปิดทุกไม้ก่อน 00:30 ICT — ออปชั่น series นี้หมดอายุ 12:30 CT กำแพง OI ตายพร้อม series อย่ารอเป้าไกลในวันหมดอายุ")
 
@@ -985,6 +1017,10 @@ def archive_oi_and_diff():
         dc, dp = r["call"] - p["call"], r["put"] - p["put"]
         if abs(dc) + abs(dp) < 10:        # ignore noise
             continue
+        if abs(dc) < max(10, 0.1 * abs(dp)):      # a ±1-lot wiggle on one side is not a "structure flip"
+            dc = 0
+        if abs(dp) < max(10, 0.1 * abs(dc)):
+            dp = 0
         if dp < 0 and dc > 0:
             read = "Put ลด+Call เพิ่ม = โครงสร้างพลิกขึ้น"
         elif dc < 0 and dp > 0:
@@ -1266,7 +1302,7 @@ def notify_telegram(plan, chart_path=None):
         side = "LONG" if en["side"] == "long" else "SHORT"
         tps = "/".join(fmt1(t) for t in en["tp"])
         role = {"main": " · ตามเทรนด์ ไม้เต็ม", "counter": (" · ไม้ครึ่ง" if en.get("size") == "half" else " · สวน bias ไม้ปกติ"), "range": " · ในกรอบ"}.get(en.get("role"), "")
-        lines.append(f"• {side} {en['title']}{role}")
+        lines.append(f"• {side} {en['title']}{role}{' ⚠RR<2 ไม้ครึ่ง/ข้าม' if en.get('flag') == 'rr' else ''}")
         lines.append(f"   เข้า {fmt1(en['entry'])} · SL {fmt1(en['sl'])} · TP {tps} · {en['rr']}")
         if en.get("add_on"):
             a = en["add_on"]
