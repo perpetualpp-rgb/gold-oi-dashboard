@@ -4,8 +4,8 @@ name: Mirror OI Data
 # ~30 min. If pageth ever deletes their repo or goes down, the dashboard + plan
 # fall back to this mirror (last-known good data) — so we're never left dataless.
 on:
-  schedule:
-    - cron: "*/30 * * * *"
+#  schedule:   (DISABLED 2026-09-19 — she ordered every automatic job stopped; pageth is dead anyway)
+#    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 permissions:
