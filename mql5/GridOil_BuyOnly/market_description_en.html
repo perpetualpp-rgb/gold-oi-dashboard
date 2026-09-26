@@ -1,0 +1,102 @@
+<p><b>GridOil Buy-Only</b> is a percentage-based buy grid Expert Advisor for crude oil (WTI / Brent) on MetaTrader 5. It builds a ladder of buy levels below the market. Each level has its own take profit one grid step higher. Stuck orders are reduced only with profit the EA has actually realized.</p>
+<p>Oil has historically traded within wide ranges. The EA buys the dips level by level and takes profit on every bounce. Grid orders have <b>no per-order stop loss</b>, and portfolio protection is optional.</p>
+
+<h3>How it works</h3>
+<ol>
+<li><b>Ladder</b> – In Auto Zone mode, levels are placed below an anchor price at a fixed % step (default: first level 0.5% below, then every 2%). Manual Zone mode lets you define up to 3 fixed price zones, each with its own step and lot.</li>
+<li><b>Entry</b> – A market order is sent when price comes back down to an empty level. Buy Limit orders on the server are optional.</li>
+<li><b>Exit</b> – Each order has a take profit one step above its entry. When it closes, the level is free again and can trade again.</li>
+<li><b>Ladder follows price</b> – When the basket is empty and price moves well above the anchor, or falls below the last level, the anchor moves to the current price.</li>
+<li><b>Profit-Funded De-risk</b> – Each time equity rises by a set %, the deepest losing orders are closed. They are paid for only with profit this EA has already realized, never with deposits or other EAs' profit.</li>
+</ol>
+
+<h3>Main features</h3>
+<ul>
+<li>Auto Zone (ladder that follows price) or up to 3 Manual Zones</li>
+<li>Percentage grid step, so levels keep the same shape at any price</li>
+<li>Optional lot increase for deeper levels</li>
+<li>Take profit on every order (+1 grid step)</li>
+<li>Profit-Funded De-risk: closes deep orders with realized profit only</li>
+<li><b>Built-in capital calculator</b>: shows the estimated floating loss at the floor, the margin needed and the recommended balance. It can block new orders when the balance is too low.</li>
+<li>Optional Equity Stop (% drawdown or fixed equity level), which closes everything and halts</li>
+<li>Deposits and withdrawals are not treated as profit or drawdown</li>
+<li>Max open orders cap and floor price</li>
+<li>Optional Trend Rider: EMA trend orders with a server-side trailing stop and pyramiding</li>
+<li>Market-on-touch or Buy Limit entry mode, spread filter (% of price)</li>
+<li>State is bound to account + symbol + magic and survives terminal restarts</li>
+<li>Checks volume, free margin and broker limits before every order</li>
+</ul>
+
+<h3>Requirements</h3>
+<ul>
+<li><b>Hedging account only</b></li>
+<li>Symbol: WTI or Brent crude oil (for example XTIUSD, USOIL, WTI, UKOIL). Other symbols can be traded with suitable settings.</li>
+<li>Chart timeframe: any (the grid is price-based)</li>
+<li>Balance: check the <b>recommended balance</b> on the chart panel for your settings. The default ladder uses 0.01 lot per level.</li>
+<li>Run 24/5 on a VPS (market-on-touch mode needs the terminal online)</li>
+</ul>
+
+<h3>Input parameters</h3>
+<p><b>Grid Mode</b></p>
+<ul>
+<li><b>Use Auto Zone</b> – true = ladder from an anchor price, false = Manual Zones</li>
+</ul>
+<p><b>Auto Zone</b></p>
+<ul>
+<li><b>Anchor price</b> – 0 = market price at first start (remembered)</li>
+<li><b>First level below anchor (%)</b> – avoids buying the top</li>
+<li><b>Grid step (%)</b> – distance between levels and take profit size</li>
+<li><b>Number of levels</b> – length of the ladder</li>
+<li><b>Lot of top level</b></li>
+<li><b>Increase lot every N levels / lot added</b> – bigger lots deeper (0 = same lot)</li>
+<li><b>Reset anchor</b> – one-shot switch to set a new anchor from the current price</li>
+<li><b>Move anchor %</b> – move the ladder up with price while the basket is empty (0 = off)</li>
+</ul>
+<p><b>Manual Zones 1–3</b></p>
+<ul>
+<li><b>Top / bottom price, step %, lot per level</b> for each zone (0 = zone not used)</li>
+</ul>
+<p><b>Portfolio Risk</b></p>
+<ul>
+<li><b>Floor price</b> – no new orders below it (0 = automatic)</li>
+<li><b>Equity Stop % / money</b> – close everything and halt (0 = off)</li>
+<li><b>Max open grid orders</b> – open + pending cap (0 = no limit)</li>
+<li><b>Block if underfunded</b> – no new orders when the balance is below the calculated need</li>
+<li><b>Fill missed levels at market</b> – buy levels price has already passed</li>
+<li><b>Max margin usage %</b> – the most free margin one order may use</li>
+</ul>
+<p><b>Profit-Funded De-risk</b></p>
+<ul>
+<li><b>Clear step %</b> – equity rise that triggers a clear (0 = off)</li>
+<li><b>Clear mode</b> – 1 = deepest orders first, 2 = whole basket (only if realized profit covers it)</li>
+<li><b>Min depth %, max orders per clear, budget factor</b></li>
+<li><b>Include trend orders</b></li>
+</ul>
+<p><b>Order Entry</b></p>
+<ul>
+<li><b>Use pending orders</b> – Buy Limit on server, or market order on touch</li>
+<li><b>Max slippage (points)</b></li>
+<li><b>Max spread (% of price)</b> – 0 = off</li>
+</ul>
+<p><b>Trend Rider</b> (lot 0 = off)</p>
+<ul>
+<li><b>Lot, timeframe, EMA period</b> – entry when a bar closes above a rising EMA</li>
+<li><b>Max trend orders, pyramid step %</b></li>
+<li><b>Trailing stop %</b></li>
+<li><b>No-cut mode</b> – no initial stop loss; the trailing stop only locks profit</li>
+<li><b>Trend flip min profit %</b></li>
+</ul>
+<p><b>System</b></p>
+<ul>
+<li><b>Magic number</b>, <b>symbol check</b>, <b>Reset Halt</b> (one-shot switch after an Equity Stop), <b>Show panel</b></li>
+</ul>
+
+<h3>Before you start</h3>
+<ul>
+<li>Backtest with your broker's oil symbol and check the recommended balance in the Experts log.</li>
+<li>Oil buy positions usually pay negative swap, so long holding costs money.</li>
+<li>Start with a small lot on a demo account.</li>
+</ul>
+
+<h3>Risk warning</h3>
+<p>This EA opens grid orders <b>without a stop loss</b>. If oil falls far below the ladder, floating losses can become very large and the account can be lost, unless you enable the Equity Stop or keep enough capital for the whole ladder. Past performance does not guarantee future results. Trade only with money you can afford to lose.</p>
