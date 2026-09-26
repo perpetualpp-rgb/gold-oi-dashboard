@@ -23,5 +23,5 @@ Built from `GridOil_BuyOnly_NoKey.mq5` v2.00. All trading logic is the same: Aut
 1. Compile in MetaEditor (F7) and fix any errors or warnings (not compiled yet; no MetaEditor on the server).
 2. Set `#property link` to your mql5.com seller profile.
 3. Backtest on your oil symbol **and** on EURUSD H1 with a $1,000 deposit and default inputs. It must open trades with no `not enough money` / `invalid volume` errors in the journal.
-4. Validation runs on a **netting** account (EURUSD H1). v2.11 supports it; before uploading, backtest once on a netting account (in the MetaTrader 5 Tester settings or on a netting demo account).
+4. Validation runs on a **netting** account (EURUSD H1). v2.11 supports it; before uploading, backtest once while logged in to a netting demo account.
 5. Paste `market_description_en.html` into the English description (HTML mode).
