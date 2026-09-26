@@ -2,7 +2,7 @@
 //|                                              GridOil_BuyOnly.mq5 |
 //|                                  Copyright 2026, KruJeab Forex   |
 //|   Buy-only percentage grid for crude oil (WTI / Brent)           |
-//|   MQL5 Market edition v2.10 (based on GridOil_BuyOnly v2.00)     |
+//|   MQL5 Market edition v2.11 (based on GridOil_BuyOnly v2.00)     |
 //|                                                                  |
 //|   Principles: grid orders have no stop loss, stuck orders are    |
 //|   cleared only with profit the EA has actually realized, and     |
@@ -10,17 +10,17 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, KruJeab Forex"
 #property link      "https://www.mql5.com"
-#property version   "2.10"
+#property version   "2.11"
 #property description "Buy-only percentage grid for crude oil (WTI / Brent). Grid orders have no per-order stop loss."
 #property description "Auto Zone: ladder built down from an anchor price that follows the market while the basket is empty."
 #property description "Manual Zone: up to 3 fixed price zones. Profit-Funded De-risk closes deep orders with realized profit only."
 #property description "Trend Rider: optional EMA trend orders with their own trailing stop. Built-in capital calculator."
-#property description "Hedging accounts only. Grid trading without stop loss carries high risk."
+#property description "Hedging and netting accounts. Grid trading without stop loss carries high risk."
 
 #include <Trade\Trade.mqh>
 
 #define EA_NAME    "GridOil Buy-Only"
-#define EA_VER     "2.10"
+#define EA_VER     "2.11"
 #define MAX_LEVELS 400
 
 //+------------------------------------------------------------------+
@@ -132,6 +132,9 @@ double   g_totalLots    = 0.0;   // total lots in the worst case
 double   g_planFloor    = 0.0;   // floor used by the capital calculator
 bool     g_watchOnly    = false; // manage existing orders only, no new orders
 string   g_watchReason  = "";
+bool     g_netting      = false; // netting account: levels are tracked virtually
+bool     g_usePending   = false; // Buy Limit mode (hedging only)
+string   g_gvNetPrefix  = "";
 
 bool   SelectedIsRider();
 double EquityStopLine();
@@ -303,6 +306,108 @@ bool SafeBuyLimit(const double lot, const double price, const double tp, const s
    { LogSkip("BuyLimit", idx, reason); return false; }
    if(!g_trade.BuyLimit(lot, price, _Symbol, 0.0, tp, ORDER_TIME_GTC, 0, comment) || !ResultOK())
    { LogFail("BuyLimit", idx); return false; }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Netting accounts: all buys merge into one position, so each      |
+//| level's filled lot is stored in a global variable and its take   |
+//| profit is done by a partial close of that lot.                   |
+//+------------------------------------------------------------------+
+double NetLot(const int i)
+{
+   string key = g_gvNetPrefix + IntegerToString(i);
+   return GlobalVariableCheck(key) ? GlobalVariableGet(key) : 0.0;
+}
+
+void NetSetLot(const int i, const double lot)
+{
+   string key = g_gvNetPrefix + IntegerToString(i);
+   if(lot > 0.0) GlobalVariableSet(key, lot);
+   else          GlobalVariableDel(key);
+}
+
+void NetClearAll()
+{
+   GlobalVariablesDeleteAll(g_gvNetPrefix);
+}
+
+// Volume and ticket of our net buy position (0 if none)
+double NetPosition(ulong &ticket)
+{
+   ticket = 0;
+   if(!PositionSelect(_Symbol))                          return 0.0;
+   if(PositionGetInteger(POSITION_MAGIC) != InpMagic)    return 0.0;
+   if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) return 0.0;
+   ticket = (ulong)PositionGetInteger(POSITION_TICKET);
+   return PositionGetDouble(POSITION_VOLUME);
+}
+
+// Keep virtual levels consistent with the real net position
+void NetSync()
+{
+   ulong  ticket = 0;
+   double vol    = NetPosition(ticket);
+   if(vol <= 0.0)
+   {
+      NetClearAll();
+      return;
+   }
+   double sum = 0.0;
+   for(int i = 0; i < g_total; i++)
+      sum += NetLot(i);
+   // position reduced from outside: drop the deepest levels first
+   for(int i = g_total - 1; i >= 0 && sum > vol + 1e-8; i--)
+   {
+      double l = NetLot(i);
+      if(l <= 0.0) continue;
+      NetSetLot(i, 0.0);
+      sum -= l;
+   }
+}
+
+// Close the lot of one virtual level (partial close of the net position)
+bool NetCloseLevel(const int i)
+{
+   double lot = NetLot(i);
+   if(lot <= 0.0)
+      return false;
+   ulong  ticket = 0;
+   double vol    = NetPosition(ticket);
+   if(vol <= 0.0)
+   {
+      NetClearAll();
+      return false;
+   }
+   bool ok = (lot >= vol - 1e-8) ? g_trade.PositionClose(ticket)
+                                 : g_trade.PositionClosePartial(ticket, lot);
+   if(ok && ResultOK())
+   {
+      NetSetLot(i, 0.0);
+      return true;
+   }
+   LogFail("Close level", i);
+   return false;
+}
+
+// Virtual take profit: +1 grid step above each filled level
+void NetTakeProfits(const double bid)
+{
+   for(int i = 0; i < g_total; i++)
+   {
+      if(NetLot(i) <= 0.0) continue;
+      if(bid >= NormalizePrice(g_price[i] * (1.0 + g_step[i])))
+         NetCloseLevel(i);
+   }
+}
+
+// Opens one grid level (per-order TP on hedging, virtual TP on netting)
+bool GridBuy(const int i, const double tp, const string comment)
+{
+   if(!SafeBuy(g_lot[i], g_netting ? 0.0 : tp, comment, i))
+      return false;
+   if(g_netting)
+      NetSetLot(i, g_trade.ResultVolume() > 0.0 ? g_trade.ResultVolume() : g_lot[i]);
    return true;
 }
 
@@ -647,13 +752,11 @@ bool ValidateInputs()
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Several buy orders on one symbol at the same time need a hedging account
-   if((ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING)
-   {
-      Print(EA_NAME, ": this EA requires a hedging account (netting accounts merge all grid orders into one position)");
-      Comment(EA_NAME, ": a hedging account is required.");
-      return INIT_FAILED;
-   }
+   // Netting: all grid buys merge into one position, levels are tracked virtually
+   g_netting    = ((ENUM_ACCOUNT_MARGIN_MODE)AccountInfoInteger(ACCOUNT_MARGIN_MODE) != ACCOUNT_MARGIN_MODE_RETAIL_HEDGING);
+   g_usePending = (InpUsePendingOrders && !g_netting);
+   if(g_netting)
+      Print(EA_NAME, ": netting account - virtual grid levels, market entries only, Trend Rider disabled");
 
    if(!ValidateInputs())
       return INIT_PARAMETERS_INCORRECT;
@@ -688,6 +791,7 @@ int OnInit()
    g_gvCycTime   = "GO_CYCTIME_"  + tag;
    g_gvCashApp   = "GO_CASHAPP_"  + tag;
    g_gvBalSeen   = "GO_BALSEEN_"  + tag;
+   g_gvNetPrefix = "GO_NL_"       + tag + "_";
 
    bool anyExposure = HasExposure();
    bool flatPos     = !HasOpenPositions();
@@ -764,7 +868,7 @@ int OnInit()
    g_riderOn = false;
    g_riderTrailBlock = 0;
    g_lastTrendBar = 0;
-   if(InpTrendLot > 0.0)
+   if(InpTrendLot > 0.0 && !g_netting)
    {
       g_emaFast = iMA(_Symbol, InpTrendTF, InpTrendEMAFast, 0, MODE_EMA, PRICE_CLOSE);
       if(g_emaFast == INVALID_HANDLE)
@@ -872,6 +976,17 @@ int BuildOccupancy(int &pendOut)
 
    pendOut = 0;
    int gridCount = 0;
+   if(g_netting)
+   {
+      NetSync();
+      for(int i = 0; i < g_total; i++)
+         if(NetLot(i) > 0.0)
+         {
+            g_occupied[i] = true;
+            gridCount++;
+         }
+      return gridCount;
+   }
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
       if(PositionGetTicket(i) == 0) continue;
@@ -954,6 +1069,8 @@ void CloseEverythingAndHalt(const string reason)
       if(HasExposure() && !IsTester())
          Sleep(500);
    }
+   if(!HasOpenPositions())
+      NetClearAll();
    if(HasExposure())
       Print(EA_NAME, ": not everything is closed yet (market closed / requote) - retrying every tick");
    if(!IsTester())
@@ -972,6 +1089,63 @@ double GridBasketPL()
       pl += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
    }
    return pl;
+}
+
+// Netting version of the de-risk on virtual levels. Returns levels closed.
+int NetProfitFundedClear(const double budget, const double bid)
+{
+   ulong  ticket = 0;
+   if(NetPosition(ticket) <= 0.0)
+      return 0;
+
+   if(InpClearMode == 2)
+   {
+      double basketPL = GridBasketPL();
+      if(basketPL < 0.0 && -basketPL > budget)
+         return 0;
+      if(!g_trade.PositionClose(ticket) || !ResultOK())
+      {
+         LogFail("Close basket", -1);
+         return 0;
+      }
+      int n = 0;
+      for(int i = 0; i < g_total; i++)
+         if(NetLot(i) > 0.0) { g_missedFired[i] = true; n++; }
+      NetClearAll();
+      return MathMax(n, 1);
+   }
+
+   // Mode 1: deepest levels first, within the realized-profit budget
+   double vpd    = ValuePer1Move();
+   double spent  = 0.0;
+   int    closed = 0;
+   for(int k = 0; k < InpClearMaxOrders; k++)
+   {
+      int    best = -1;
+      double bestDepth = InpClearMinDepthPct;
+      double bestCost  = 0.0;
+      for(int i = 0; i < g_total; i++)
+      {
+         double lot = NetLot(i);
+         if(lot <= 0.0) continue;
+         double d    = (g_price[i] - bid) / bid * 100.0;
+         double cost = MathMax(0.0, (g_price[i] - bid) * lot * vpd);
+         if(d >= bestDepth && spent + cost <= budget)
+         {
+            bestDepth = d;
+            bestCost  = cost;
+            best      = i;
+         }
+      }
+      if(best < 0 || !NetCloseLevel(best))
+         break;
+      g_missedFired[best] = true;
+      spent += bestCost;
+      closed++;
+      PrintFormat("%s CLEAR: closed level %d, %.1f%% deep, est. loss %.2f (budget %.2f, used %.2f)",
+                  EA_NAME, best, bestDepth, bestCost, budget, spent);
+   }
+   return closed;
 }
 
 //+------------------------------------------------------------------+
@@ -1012,7 +1186,9 @@ void ProfitFundedClear()
 
    int closed = 0;
 
-   if(InpClearMode == 2)
+   if(g_netting)
+      closed = NetProfitFundedClear(budget, bid);
+   else if(InpClearMode == 2)
    {
       // Whole basket: realized profit must cover the whole basket loss first
       double basketPL = GridBasketPL();
@@ -1127,6 +1303,8 @@ void ProfitFundedClear()
 //+------------------------------------------------------------------+
 bool SelectedIsRider()
 {
+   if(g_netting)
+      return false;
    string c = PositionGetString(POSITION_COMMENT);
    if(StringLen(c) >= 2 && StringSubstr(c, 0, 2) == "TR")
       return true;
@@ -1296,19 +1474,25 @@ void UpdatePanel(const bool halted)
       if(OrderGetString(ORDER_SYMBOL) != _Symbol)  continue;
       pendCnt++;
    }
+   if(g_netting)
+   {
+      posCnt = 0;
+      for(int i = 0; i < g_total; i++)
+         if(NetLot(i) > 0.0) posCnt++;
+   }
 
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    string cur = AccountInfoString(ACCOUNT_CURRENCY);
 
-   string txt = "\n--- " + EA_NAME + " v" + EA_VER + " ---";
+   string txt = "\n--- " + EA_NAME + " v" + EA_VER + (g_netting ? " (netting)" : "") + " ---";
    txt += InpUseAutoZone ? StringFormat("\nGrid: Auto Zone, anchor %s (step %.2f%%)", DoubleToString(g_anchorUsed, _Digits), InpAutoStepPct)
                          : "\nGrid: Manual Zones";
    if(InpUseAutoZone && InpAutoReanchorPct > 0.0 && InpAutoAnchor <= 0.0 && g_total > 0)
       txt += StringFormat("\nRe-anchor when basket is empty and Bid >= %s or < %s",
                           DoubleToString(g_anchorUsed * (1.0 + InpAutoReanchorPct / 100.0), _Digits),
                           DoubleToString(g_price[g_total-1], _Digits));
-   txt += InpUsePendingOrders ? "\nEntry: Buy Limit orders on server"
+   txt += g_usePending ? "\nEntry: Buy Limit orders on server"
                               : "\nEntry: market order on touch (keep terminal online)";
    if(halted)
       txt += "\nStatus: HALTED by Equity Stop (set Reset Halt = true to start a new cycle)";
@@ -1449,11 +1633,16 @@ void OnTick()
    bool spreadOK = !(InpMaxSpreadPct > 0.0 && (ask - bid) > bid * InpMaxSpreadPct / 100.0);
    bool canTrade = IsTradingPermitted();
 
-   if(!InpUsePendingOrders)
+   if(!g_usePending)
       DeleteOurPendings();   // market mode: remove pending orders left from pending mode
 
    int pendCnt  = 0;
    int openGrid = BuildOccupancy(pendCnt);
+   if(g_netting && openGrid > 0)
+   {
+      NetTakeProfits(bid);            // virtual per-level take profit
+      openGrid = BuildOccupancy(pendCnt);
+   }
 
    // 5) Move the ladder with price while the basket is empty
    if(MaybeReanchor(bid, openGrid, pendCnt))
@@ -1484,7 +1673,7 @@ void OnTick()
             continue;
          double tp = NormalizePrice(lvl * (1.0 + g_step[i]));
 
-         if(InpUsePendingOrders)
+         if(g_usePending)
          {
             if(ask - lvl > MathMax(minDist, _Point))
             {
@@ -1493,7 +1682,7 @@ void OnTick()
             }
             else if(InpFillMissedAtMarket && !g_missedFired[i] && ask < lvl)
             {
-               if(SafeBuy(g_lot[i], tp, "G" + IntegerToString(i) + "M", i))
+               if(GridBuy(i, tp, "G" + IntegerToString(i) + "M"))
                {
                   g_missedFired[i] = true;
                   slots--;
@@ -1509,7 +1698,7 @@ void OnTick()
             {
                if(g_wasAbove[i])
                {
-                  if(SafeBuy(g_lot[i], tp, "G" + IntegerToString(i), i))
+                  if(GridBuy(i, tp, "G" + IntegerToString(i)))
                   {
                      g_wasAbove[i] = false;
                      slots--;
@@ -1517,7 +1706,7 @@ void OnTick()
                }
                else if(InpFillMissedAtMarket && !g_missedFired[i])
                {
-                  if(SafeBuy(g_lot[i], tp, "G" + IntegerToString(i) + "M", i))
+                  if(GridBuy(i, tp, "G" + IntegerToString(i) + "M"))
                   {
                      g_missedFired[i] = true;
                      slots--;
@@ -1527,7 +1716,7 @@ void OnTick()
          }
       }
    }
-   else if(!belowStop && spreadOK && !InpUsePendingOrders)
+   else if(!belowStop && spreadOK && !g_usePending)
    {
       // Cap full / below floor: keep arming levels price is above
       for(int i = 0; i < g_total; i++)

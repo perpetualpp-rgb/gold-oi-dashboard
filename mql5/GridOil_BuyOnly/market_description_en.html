@@ -24,12 +24,13 @@
 <li>Optional Trend Rider: EMA trend orders with a server-side trailing stop and pyramiding</li>
 <li>Market-on-touch or Buy Limit entry mode, spread filter (% of price)</li>
 <li>State is bound to account + symbol + magic and survives terminal restarts</li>
+<li>Works on hedging and netting accounts</li>
 <li>Checks volume, free margin and broker limits before every order</li>
 </ul>
 
 <h3>Requirements</h3>
 <ul>
-<li><b>Hedging account only</b></li>
+<li>Account: <b>hedging recommended</b>. Netting accounts are supported: grid levels and their take profits are tracked by the EA, and Buy Limit mode and Trend Rider are not available.</li>
 <li>Symbol: WTI or Brent crude oil (for example XTIUSD, USOIL, WTI, UKOIL). Other symbols can be traded with suitable settings.</li>
 <li>Chart timeframe: any (the grid is price-based)</li>
 <li>Balance: check the <b>recommended balance</b> on the chart panel for your settings. The default ladder uses 0.01 lot per level.</li>
