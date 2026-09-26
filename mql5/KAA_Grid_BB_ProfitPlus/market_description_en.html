@@ -1,0 +1,127 @@
+<p><b>KAA BB Grid</b> is a basket grid Expert Advisor for MetaTrader 5. It opens the first trade at the edge of the Bollinger Bands, only in the direction of the higher-timeframe trend. It adds positions at ATR-based distances and closes the whole basket together at a profit target that grows with the basket.</p>
+<p>The EA was designed for <b>XAUUSD (Gold)</b> and also works on other symbols, because all distances are set in points or come from ATR.</p>
+
+<h3>How it works</h3>
+<ol>
+<li><b>Trend filter</b> – An EMA on a higher timeframe (default EMA 200 on H1) sets the direction. Buy baskets start only above a rising EMA, and sell baskets only below a falling EMA.</li>
+<li><b>First entry</b> – A buy basket starts when price touches the lower Bollinger Band. A sell basket starts when price touches the upper band. An optional candle body filter is available.</li>
+<li><b>Grid</b> – When price moves against the basket, a new level is added. The distance is ATR × multiplier, with a minimum (and optional maximum) in points. The lot can grow by a multiplier per level, up to a max lot cap.</li>
+<li><b>Exit</b> – The whole basket closes together when it reaches the profit target. With the dynamic target on, the target rises with the number of levels and the total lot.</li>
+</ol>
+
+<h3>Main features</h3>
+<ul>
+<li>Bollinger Bands entry with an EMA trend and slope filter</li>
+<li>ATR adaptive grid step (min / max distance in points)</li>
+<li>Dynamic basket take profit that scales with basket size</li>
+<li>4 close modes: basket profit, basket points, BB middle band, opposite BB band</li>
+<li>Basket trailing profit (fixed, or scaled to the target)</li>
+<li>Fixed lot or automatic lot by balance</li>
+<li>Money targets can scale with the lot size, so one set file fits different deposits</li>
+<li>Equity drawdown protection in % or money, with automatic close of all baskets</li>
+<li>Spread filter, trading hours filter, Friday close</li>
+<li>One basket at a time option, and a cooldown after a basket closes</li>
+<li>Optional lot splitting into smaller orders (hedging accounts)</li>
+<li>Works on <b>hedging and netting</b> accounts</li>
+<li>Checks volume, free margin, symbol trade mode and broker limits before every order</li>
+<li>Information panel on the chart</li>
+</ul>
+
+<h3>Recommendations</h3>
+<ul>
+<li>Symbol: XAUUSD (Gold)</li>
+<li>Chart timeframe: any. The EA uses its own signal timeframe (default M15).</li>
+<li>Minimum deposit: 1,000 USD for every 0.01 start lot</li>
+<li>Account: low spread (ECN / Raw), hedging preferred</li>
+<li>Run 24/5 on a VPS</li>
+<li>For 3-digit gold quotes (for example 2345.678), multiply the point inputs by 10</li>
+</ul>
+
+<h3>Input parameters</h3>
+<p><b>General</b></p>
+<ul>
+<li><b>Magic number</b> – ID of the EA's orders. Use a different number on each chart.</li>
+<li><b>Order comment prefix</b> – text added to the order comment</li>
+<li><b>Show info panel</b> – show or hide the chart panel</li>
+</ul>
+<p><b>Bollinger Bands</b></p>
+<ul>
+<li><b>BB period / deviation / applied price</b> – Bollinger Bands settings</li>
+<li><b>Signal timeframe</b> – timeframe for Bollinger Bands, ATR and new bar entries (default M15)</li>
+</ul>
+<p><b>Trend Filter</b></p>
+<ul>
+<li><b>Use trend filter</b> – trade only in the direction of the higher-timeframe EMA</li>
+<li><b>Trend timeframe / EMA period</b> – default H1 / 200</li>
+<li><b>Require EMA slope</b> – the EMA must also be rising (buy) or falling (sell)</li>
+</ul>
+<p><b>Entry</b></p>
+<ul>
+<li><b>First order only at BB band</b> – start a basket only at the band</li>
+<li><b>Allowed distance inside the band</b> – tolerance in points</li>
+<li><b>Min candle body</b> – minimum body of the last closed candle in points (0 = off)</li>
+</ul>
+<p><b>Grid</b></p>
+<ul>
+<li><b>Grid direction</b> – buy only, sell only, or both</li>
+<li><b>Max grid levels</b> – maximum number of levels per basket</li>
+<li><b>One basket at a time</b> – do not run buy and sell baskets together</li>
+<li><b>Cooldown bars</b> – bars to wait after a basket is closed</li>
+<li><b>Grid step (points)</b> – fixed step, or the minimum step when ATR is used</li>
+<li><b>Use ATR grid / ATR period / ATR multiplier</b> – adaptive step settings</li>
+<li><b>Max adaptive step</b> – upper limit in points (0 = no limit)</li>
+</ul>
+<p><b>Lot Size</b></p>
+<ul>
+<li><b>Lot mode</b> – fixed start lot, or automatic by balance</li>
+<li><b>Fixed start lot</b> – first order lot in fixed mode</li>
+<li><b>Auto lot per step / balance step</b> – for example 0.01 lot per 1,000 of balance</li>
+<li><b>Lot multiplier</b> – lot growth per level (1.0 = same lot)</li>
+<li><b>Max lot</b> – maximum lot of one order</li>
+<li><b>Max margin usage %</b> – the most free margin one order may use</li>
+</ul>
+<p><b>Lot Split</b> (hedging only)</p>
+<ul>
+<li><b>Use lot split / split lot size / max split orders</b> – open each level as several smaller orders, one per bar</li>
+</ul>
+<p><b>Basket Exit</b></p>
+<ul>
+<li><b>Close mode</b> – basket profit, basket points, BB middle band, or opposite band</li>
+<li><b>Basket profit target</b> – money target</li>
+<li><b>Basket points target</b> – target for points mode</li>
+<li><b>Also close at BB middle</b> – extra exit when the basket is in profit</li>
+<li><b>Min profit to allow BB close</b> – money</li>
+<li><b>Scale money values by start lot / Reference lot</b> – money inputs are set for the reference lot and scale with your actual start lot</li>
+</ul>
+<p><b>Dynamic Profit Target</b></p>
+<ul>
+<li><b>Use dynamic target</b> – raise the target as the basket grows</li>
+<li><b>Extra target per level / per 1.0 lot</b> – how much the target grows</li>
+<li><b>BB close target ratio</b> – part of the target needed before a BB close</li>
+</ul>
+<p><b>Basket Trailing</b></p>
+<ul>
+<li><b>Enable trailing</b> – lock in basket profit</li>
+<li><b>Activation / step / distance</b> – money values</li>
+<li><b>Dynamic trailing and ratios</b> – set the trailing values as a ratio of the basket target</li>
+</ul>
+<p><b>Risk Management</b></p>
+<ul>
+<li><b>Max drawdown % / money</b> – equity drawdown limit (0 = off)</li>
+<li><b>Close all on max drawdown</b> – close all baskets when the limit is hit. If off, no new orders are opened while drawdown is above the limit.</li>
+<li><b>Max spread</b> – in points (0 = off)</li>
+</ul>
+<p><b>Time Filter</b></p>
+<ul>
+<li><b>Use time filter / start hour / end hour</b> – server time window for new orders</li>
+<li><b>Close on Friday / Friday close hour</b> – close all baskets before the weekend</li>
+</ul>
+
+<h3>Before you start</h3>
+<ul>
+<li>Test the EA in the Strategy Tester and on a demo account with your broker before trading live.</li>
+<li>Start with a small lot and keep the drawdown protection on.</li>
+</ul>
+
+<h3>Risk warning</h3>
+<p>This EA uses grid and lot multiplier techniques. In a strong one-way market, the open basket can build a large floating loss before it recovers or reaches the drawdown limit. Past performance does not guarantee future results. Trade only with money you can afford to lose.</p>
