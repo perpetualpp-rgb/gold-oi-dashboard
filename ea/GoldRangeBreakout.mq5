@@ -25,7 +25,7 @@
 //| a restart and are retried until they succeed.                    |
 //+------------------------------------------------------------------+
 #property copyright "gold-oi-dashboard"
-#property version   "1.14"
+#property version   "1.15"
 #property description "Range Breakout for XAUUSD: daily range before a session open, DST-aware check time, ATR range filter, pending or close-confirmed entries, ATR-scaled distances, risk-based lots."
 
 #include <Trade/Trade.mqh>
@@ -2007,7 +2007,7 @@ void UpdatePanel(const datetime now)
    g_lastPanel = now;
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   string s = "Gold Range Breakout v1.14  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
+   string s = "Gold Range Breakout v1.15  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
    s += StringFormat("%s time %s  |  server %s\n", TZName(), TimeToString(ServerToLocal(now), TIME_MINUTES),
                      TimeToString(now, TIME_MINUTES));
    s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f%s\n", InpCheckHour, InpCheckMinute, TZName(),
@@ -2042,16 +2042,27 @@ bool RecoverState(const datetime now)
   {
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   // today's check is behind us: no fresh setup if today was already armed, or if it is too late
-   // (within the normal late-tick tolerance OnTick still builds it, e.g. after a re-init at 16:29)
-   if(now >= checkServer && ((datetime)GVGet("A_DAY", 0) == localDay || now - checkServer > GRB_LATE_SECONDS))
+   // one setup per local day: none if today was already armed (even if the check time was since
+   // edited to later), none if today's check is too far behind; within the normal late-tick
+   // tolerance OnTick still builds it (e.g. after a re-init at 16:29 whose first tick is 16:30)
+   datetime armed = (datetime)GVGet("A_DAY", 0);
+   if(armed == localDay || (now >= checkServer && now - checkServer > GRB_LATE_SECONDS))
       g_lastDay = localDay;
 
    datetime day = SetupDayOf(now);        // the setup whose window could still be open
-   if((datetime)GVGet("A_DAY", 0) != day || GVGet("A_ACT", 0) < 0.5 || now >= WindowEndFor(day))
+   if(armed != day || GVGet("A_ACT", 0) < 0.5 || now >= WindowEndFor(day))
      {
-      if(now >= checkServer)
-         g_s.status = "started after check time - next setup tomorrow";
+      if(armed > 0 && GVGet("A_ACT", 0) >= 0.5)
+        {
+         // the saved setup was still live but cannot be resumed under the current inputs:
+         // its stops are orphaned, so Housekeeping deletes them (with retries)
+         KillDay(armed);
+         GVSet("A_ACT", 0);
+         GVFlush();
+         Log("Saved setup of " + TimeToString(armed, TIME_DATE) + " not resumed (inputs changed?) - its pending orders are removed", true);
+        }
+      if(g_lastDay == localDay)
+         g_s.status = "today's setup already done / check time passed - next setup tomorrow";
       return true;
      }
 
