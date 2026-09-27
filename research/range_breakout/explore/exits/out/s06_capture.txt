@@ -1,0 +1,20 @@
+[load] 2.0s
+trades 1828, mean MFE before stop 1.165R, share with MFE>=1R 0.407
+              exit   avg_R     t  capture_all  avgR_when_MFE_ge1  capture_MFE_ge1  avgR_when_MFE_lt1  giveback_winners   win  skew  p95  p99
+   time 20:00 only  0.0078  0.23        0.007              1.095            0.474             -0.739             0.751 0.391  2.03 2.77 4.92
+             TP 1R -0.0370 -1.70       -0.032              0.986            0.426             -0.739             1.178 0.484  0.04 0.99 1.00
+           TP 1.5R -0.0190 -0.76       -0.016              1.030            0.446             -0.739             1.041 0.432  0.41 1.49 1.49
+             TP 2R -0.0180 -0.66       -0.015              1.032            0.447             -0.739             0.958 0.409  0.70 1.99 1.99
+             TP 3R  0.0079  0.26        0.007              1.096            0.474             -0.739             0.825 0.398  1.09 2.98 2.99
+          trail 1R  0.0031  0.13        0.003              0.844            0.365             -0.574             1.109 0.376  1.98 2.08 3.75
+        trail 1.5R  0.0070  0.24        0.006              1.060            0.459             -0.716             0.953 0.392  1.81 2.42 4.11
+          trail 2R  0.0226  0.70        0.019              1.132            0.490             -0.739             0.845 0.394  2.07 2.75 4.84
+           BE 0.5R -0.0163 -0.62       -0.014              0.787            0.341             -0.568             0.672 0.216  2.33 2.15 4.53
+BE 1R + trail 1.5R  0.0096  0.32        0.008              1.100            0.476             -0.739             0.962 0.380  1.76 2.42 4.17
+  BE 1R + trail 1R  0.0036  0.13        0.003              1.085            0.470             -0.739             1.086 0.476  1.44 2.22 3.76
+    tstop 120m <0R -0.0137 -0.50       -0.012              0.669            0.289             -0.482             0.826 0.253  2.81 2.24 4.59
+
+mid-price MFE before a 1R stop: breakout direction vs mirror direction
+all   mean dir 1.241  mirror 1.089  diff +0.152 (t 2.98)  median dir 0.81 mirror 0.70  | no-stop max fav 1.374 vs max adv 1.265
+long  mean dir 1.200  mirror 1.128  diff +0.072 (t 1.00)  median dir 0.77 mirror 0.70  | no-stop max fav 1.331 vs max adv 1.270
+short mean dir 1.288  mirror 1.044  diff +0.244 (t 3.37)  median dir 0.88 mirror 0.70  | no-stop max fav 1.423 vs max adv 1.260

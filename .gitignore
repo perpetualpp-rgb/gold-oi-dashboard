@@ -3,3 +3,5 @@ research/range_breakout/data_cache/
 research/range_breakout/*.log
 __pycache__/
 .pytest_cache/
+research/range_breakout/explore/**/*.pkl
+research/range_breakout/explore/**/*.parquet

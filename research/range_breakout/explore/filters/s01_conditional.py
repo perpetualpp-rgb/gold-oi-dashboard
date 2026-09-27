@@ -178,8 +178,8 @@ txt = "\n### exit reasons by width/ATR quintile\n\n" + md(pd.DataFrame(rows))
 print(txt)
 out.append(txt)
 
-with open("out_s01_conditional.md", "w") as fh:
+with open("out_s01_conditional.txt", "w") as fh:
     fh.write("# Stage 1: conditional analysis of default IS trades\n\n")
     fh.write(f"default IS: {E.stats(t)}\n")
     fh.write("\n".join(out))
-tt.to_pickle("s01_trades.pkl")
+

@@ -1,0 +1,55 @@
+| config | period | n | nL | nS | actual | always_long | always_short | coin_mean | coin_sd | coin_q95 | p_coin | shuf_mean | shuf_q95 | p_shuffle | L_minus_opp | S_minus_opp |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| default | default_costs | IS | 1828 | 976 | 852 | 0.0078 | -0.0857 | -0.0263 | -0.0564 | 0.0270 | -0.0121 | 0.0090 | -0.0584 | -0.0138 | 0.0079 | 0.0639 | 0.2006 |
+| default | default_costs | VAL | 478 | 256 | 222 | -0.0105 | -0.1108 | 0.0250 | -0.0434 | 0.0545 | 0.0461 | 0.2776 | -0.0478 | 0.0431 | 0.2501 | -0.0662 | 0.2161 |
+| default | frictionless | IS | 1787 | 905 | 882 | 0.0988 | -0.0050 | 0.0445 | 0.0197 | 0.0282 | 0.0655 | 0.0026 | 0.0188 | 0.0646 | 0.0018 | 0.1074 | 0.2104 |
+| default | frictionless | VAL | 470 | 238 | 232 | 0.0581 | -0.0439 | 0.0755 | 0.0161 | 0.0566 | 0.1095 | 0.2301 | 0.0146 | 0.1070 | 0.2198 | -0.0343 | 0.2068 |
+| tight_sl0.5_tp2 | default_costs | IS | 1828 | 976 | 852 | -0.0934 | -0.1764 | -0.1679 | -0.1723 | 0.0265 | -0.1290 | 0.0023 | -0.1727 | -0.1293 | 0.0009 | 0.1395 | 0.1780 |
+| tight_sl0.5_tp2 | default_costs | VAL | 478 | 256 | 222 | -0.1425 | -0.2222 | -0.0393 | -0.1317 | 0.0519 | -0.0471 | 0.5790 | -0.1371 | -0.0506 | 0.5404 | -0.1927 | 0.1716 |
+| tight_sl0.5_tp2 | frictionless | IS | 1787 | 905 | 882 | 0.0864 | -0.0043 | 0.0205 | 0.0081 | 0.0287 | 0.0547 | 0.0030 | 0.0075 | 0.0539 | 0.0027 | 0.1302 | 0.1837 |
+| tight_sl0.5_tp2 | frictionless | VAL | 470 | 238 | 232 | 0.0053 | -0.0759 | 0.0649 | -0.0054 | 0.0551 | 0.0852 | 0.4192 | -0.0075 | 0.0838 | 0.4072 | -0.1177 | 0.1645 |
+| fade_tp1 | default_costs | IS | 1748 | 821 | 927 | -0.1087 | -0.0763 | -0.0558 | -0.0660 | 0.0215 | -0.0303 | 0.9750 | -0.0655 | -0.0299 | 0.9756 | -0.1126 | -0.0611 |
+| fade_tp1 | default_costs | VAL | 465 | 219 | 246 | -0.0879 | -0.1338 | 0.0109 | -0.0611 | 0.0422 | 0.0084 | 0.7392 | -0.0570 | 0.0136 | 0.7642 | -0.2098 | 0.0867 |
+| fade_tp1 | frictionless | IS | 1787 | 882 | 905 | -0.0511 | -0.0190 | 0.0174 | -0.0009 | 0.0221 | 0.0357 | 0.9886 | -0.0008 | 0.0348 | 0.9890 | -0.1388 | -0.0633 |
+| fade_tp1 | frictionless | VAL | 470 | 232 | 238 | -0.0285 | -0.0713 | 0.0671 | -0.0021 | 0.0426 | 0.0689 | 0.7301 | -0.0017 | 0.0683 | 0.7383 | -0.1937 | 0.0846 |
+| wide_sl2 | default_costs | IS | 1828 | 976 | 852 | -0.0031 | -0.0482 | -0.0210 | -0.0346 | 0.0176 | -0.0055 | 0.0385 | -0.0357 | -0.0064 | 0.0347 | 0.0335 | 0.0966 |
+| wide_sl2 | default_costs | VAL | 478 | 256 | 222 | -0.0209 | -0.0520 | -0.0226 | -0.0375 | 0.0364 | 0.0214 | 0.3221 | -0.0387 | 0.0222 | 0.3132 | 0.0033 | 0.0671 |
+| wide_sl2 | frictionless | IS | 1787 | 905 | 882 | 0.0454 | -0.0021 | 0.0156 | 0.0067 | 0.0179 | 0.0358 | 0.0150 | 0.0063 | 0.0354 | 0.0135 | 0.0588 | 0.0961 |
+| wide_sl2 | frictionless | VAL | 470 | 238 | 232 | 0.0157 | -0.0169 | 0.0243 | 0.0041 | 0.0373 | 0.0651 | 0.3726 | 0.0031 | 0.0647 | 0.3657 | -0.0170 | 0.0661 |
+
+| config | costs | period | break_dir | n | R_breakout_dir | R_opposite | diff | t_diff |
+|---|---|---|---|---|---|---|---|---|
+| default | default_costs | IS | up (long) | 976 | -0.0082 | -0.0721 | 0.0639 | 0.8558 |
+| default | default_costs | IS | down (short) | 852 | 0.0261 | -0.1746 | 0.2006 | 2.5748 |
+| default | default_costs | VAL | up (long) | 256 | -0.0927 | -0.0265 | -0.0662 | -0.4605 |
+| default | default_costs | VAL | down (short) | 222 | 0.0844 | -0.1317 | 0.2161 | 1.2645 |
+| default | frictionless | IS | up (long) | 905 | 0.0843 | -0.0231 | 0.1074 | 1.3518 |
+| default | frictionless | IS | down (short) | 882 | 0.1137 | -0.0967 | 0.2104 | 2.6596 |
+| default | frictionless | VAL | up (long) | 238 | -0.0349 | -0.0005 | -0.0343 | -0.2335 |
+| default | frictionless | VAL | down (short) | 232 | 0.1535 | -0.0533 | 0.2068 | 1.1877 |
+| tight_sl0.5_tp2 | default_costs | IS | up (long) | 976 | -0.0757 | -0.2152 | 0.1395 | 1.9193 |
+| tight_sl0.5_tp2 | default_costs | IS | down (short) | 852 | -0.1137 | -0.2917 | 0.1780 | 2.3536 |
+| tight_sl0.5_tp2 | default_costs | VAL | up (long) | 256 | -0.2605 | -0.0679 | -0.1927 | -1.3810 |
+| tight_sl0.5_tp2 | default_costs | VAL | down (short) | 222 | -0.0064 | -0.1780 | 0.1716 | 1.0906 |
+| tight_sl0.5_tp2 | frictionless | IS | up (long) | 905 | 0.0914 | -0.0388 | 0.1302 | 1.6215 |
+| tight_sl0.5_tp2 | frictionless | IS | down (short) | 882 | 0.0813 | -0.1024 | 0.1837 | 2.2803 |
+| tight_sl0.5_tp2 | frictionless | VAL | up (long) | 238 | -0.0972 | 0.0205 | -0.1177 | -0.7725 |
+| tight_sl0.5_tp2 | frictionless | VAL | down (short) | 232 | 0.1105 | -0.0540 | 0.1645 | 1.0279 |
+| fade_tp1 | default_costs | IS | up (long) | 821 | -0.1384 | -0.0258 | -0.1126 | -1.7717 |
+| fade_tp1 | default_costs | IS | down (short) | 927 | -0.0824 | -0.0213 | -0.0611 | -1.0302 |
+| fade_tp1 | default_costs | VAL | up (long) | 219 | -0.1704 | 0.0394 | -0.2098 | -1.6983 |
+| fade_tp1 | default_costs | VAL | down (short) | 246 | -0.0145 | -0.1011 | 0.0867 | 0.7503 |
+| fade_tp1 | frictionless | IS | up (long) | 882 | -0.0707 | 0.0681 | -0.1388 | -2.2121 |
+| fade_tp1 | frictionless | IS | down (short) | 905 | -0.0319 | 0.0313 | -0.0633 | -1.0454 |
+| fade_tp1 | frictionless | VAL | up (long) | 232 | -0.0969 | 0.0969 | -0.1937 | -1.5764 |
+| fade_tp1 | frictionless | VAL | down (short) | 238 | 0.0381 | -0.0465 | 0.0846 | 0.7141 |
+| wide_sl2 | default_costs | IS | up (long) | 976 | -0.0168 | -0.0503 | 0.0335 | 0.6988 |
+| wide_sl2 | default_costs | IS | down (short) | 852 | 0.0125 | -0.0841 | 0.0966 | 1.8809 |
+| wide_sl2 | default_costs | VAL | up (long) | 256 | -0.0487 | -0.0520 | 0.0033 | 0.0344 |
+| wide_sl2 | default_costs | VAL | down (short) | 222 | 0.0113 | -0.0558 | 0.0671 | 0.5901 |
+| wide_sl2 | frictionless | IS | up (long) | 905 | 0.0372 | -0.0215 | 0.0588 | 1.1732 |
+| wide_sl2 | frictionless | IS | down (short) | 882 | 0.0537 | -0.0424 | 0.0961 | 1.8850 |
+| wide_sl2 | frictionless | VAL | up (long) | 238 | -0.0139 | 0.0031 | -0.0170 | -0.1722 |
+| wide_sl2 | frictionless | VAL | down (short) | 232 | 0.0460 | -0.0200 | 0.0661 | 0.5825 |
+random-time null default_costs {'IS': {'n': 1828, 'actual_first_trade': 0.0078, 'mean': -0.0713, 'sd': 0.0283, 'q05': -0.1183, 'q95': -0.0218, 'p': 0.01}, 'VAL': {'n': 478, 'actual_first_trade': -0.0105, 'mean': -0.0675, 'sd': 0.0595, 'q05': -0.1569, 'q95': 0.0258, 'p': 0.1791}}
+random-time null frictionless {'IS': {'n': 1787, 'actual_first_trade': 0.0988, 'mean': 0.019, 'sd': 0.028, 'q05': -0.0243, 'q95': 0.069, 'p': 0.005}, 'VAL': {'n': 470, 'actual_first_trade': 0.0581, 'mean': 0.0041, 'sd': 0.0553, 'q05': -0.0813, 'q95': 0.1062, 'p': 0.1741}}
