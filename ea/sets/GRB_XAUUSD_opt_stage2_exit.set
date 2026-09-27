@@ -64,6 +64,7 @@ InpTradeWednesday=true
 InpTradeThursday=true
 InpTradeFriday=true
 InpSkipNFPDay=true
+InpSkipUSHolidays=true
 InpNewsFilter=false
 InpNewsMinBefore=60||60||0||60||N
 InpNewsMinAfter=60||60||0||60||N

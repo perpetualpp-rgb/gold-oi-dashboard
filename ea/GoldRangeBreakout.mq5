@@ -25,7 +25,7 @@
 //| a restart and are retried until they succeed.                    |
 //+------------------------------------------------------------------+
 #property copyright "gold-oi-dashboard"
-#property version   "1.10"
+#property version   "1.11"
 #property description "Range Breakout for XAUUSD: daily range before a session open, DST-aware check time, ATR range filter, pending or close-confirmed entries, ATR-scaled distances, risk-based lots."
 
 #include <Trade/Trade.mqh>
@@ -167,6 +167,7 @@ input bool                InpTradeWednesday   = true;              // Trade Wedn
 input bool                InpTradeThursday    = true;              // Trade Thursday
 input bool                InpTradeFriday      = true;              // Trade Friday
 input bool                InpSkipNFPDay       = true;              // Skip NFP release day (BLS schedule rule, NY date)
+input bool                InpSkipUSHolidays   = true;              // Skip US holidays / early-close days (the time exit may get no tick)
 input bool                InpNewsFilter       = false;             // High-impact USD news filter (MQL5 calendar, live only)
 input int                 InpNewsMinBefore    = 60;                // News: minutes before the event
 input int                 InpNewsMinAfter     = 60;                // News: minutes after the event
@@ -299,15 +300,14 @@ datetime MakeDate(const int year, const int month, const int day)
    return StructToTime(t);
   }
 
-// n-th Sunday of a month at 00:00 (n >= 1), or the last Sunday when n == 0
-datetime NthSunday(const int year, const int month, const int n)
+// n-th given weekday (0 = Sunday) of a month at 00:00 (n >= 1), or the last one when n == 0
+datetime NthWeekday(const int year, const int month, const int weekday, const int n)
   {
    MqlDateTime f;
    TimeToStruct(MakeDate(year, month, 1), f);
-   int firstSunday = 1 + (7 - f.day_of_week) % 7;
-   int day = firstSunday;
+   int day = 1 + (7 + weekday - f.day_of_week) % 7;
    if(n > 0)
-      day = firstSunday + 7 * (n - 1);
+      day += 7 * (n - 1);
    else
      {
       int dim = DaysInMonth(year, month);
@@ -315,6 +315,11 @@ datetime NthSunday(const int year, const int month, const int n)
          day += 7;
      }
    return MakeDate(year, month, day);
+  }
+
+datetime NthSunday(const int year, const int month, const int n)
+  {
+   return NthWeekday(year, month, 0, n);
   }
 
 // US DST, evaluated in UTC. 2007+: 2nd Sun Mar 02:00 EST -> 1st Sun Nov 02:00 EDT.
@@ -761,6 +766,64 @@ bool IsNFPDay(const datetime nyDate)
    return DayStart(nyDate) == NFPReleaseDate(refYear, refMonth);
   }
 
+// Gregorian Easter Sunday (anonymous algorithm)
+datetime EasterSunday(const int y)
+  {
+   int a = y % 19, b = y / 100, c = y % 100, d = b / 4, e = b % 4;
+   int f = (b + 8) / 25, g = (b - f + 1) / 3;
+   int h = (19 * a + b - d - g + 15) % 30;
+   int i = c / 4, k = c % 4;
+   int l = (32 + 2 * e + 2 * i - h - k) % 7;
+   int m = (a + 11 * h + 22 * l) / 451;
+   int month = (h + l - 7 * m + 114) / 31;
+   int day   = ((h + l - 7 * m + 114) % 31) + 1;
+   return MakeDate(y, month, day);
+  }
+
+// fixed-date holiday moved to Friday / Monday when it falls on a weekend
+bool IsObserved(const datetime date, const int year, const int month, const int day)
+  {
+   datetime h = MakeDate(year, month, day);
+   MqlDateTime t;
+   TimeToStruct(h, t);
+   if(t.day_of_week == 6)
+      h -= 86400;
+   else
+      if(t.day_of_week == 0)
+         h += 86400;
+   return date == h;
+  }
+
+// US market holidays and the usual early-close days (NY date). Gold trades on most of
+// them, but the session ends early, so the 15:55 NY time exit would get no tick.
+bool IsUSHolidayOrEarlyClose(const datetime nyDate)
+  {
+   datetime d = DayStart(nyDate);
+   MqlDateTime t;
+   TimeToStruct(d, t);
+   int y = t.year;
+   if(IsObserved(d, y, 1, 1) || IsObserved(d, y + 1, 1, 1))                   // New Year (observed)
+      return true;
+   if(d == NthWeekday(y, 1, 1, 3) || d == NthWeekday(y, 2, 1, 3))             // MLK, Presidents' Day
+      return true;
+   if(d == EasterSunday(y) - 2 * 86400)                                        // Good Friday
+      return true;
+   if(d == NthWeekday(y, 5, 1, 0))                                             // Memorial Day
+      return true;
+   if(y >= 2022 && IsObserved(d, y, 6, 19))                                    // Juneteenth
+      return true;
+   if(IsObserved(d, y, 7, 4) || (t.mon == 7 && t.day == 3))                   // Independence Day + eve
+      return true;
+   if(d == NthWeekday(y, 9, 1, 1))                                             // Labor Day
+      return true;
+   datetime thanksgiving = NthWeekday(y, 11, 4, 4);
+   if(d == thanksgiving || d == thanksgiving + 86400)                          // Thanksgiving + Friday after
+      return true;
+   if(IsObserved(d, y, 12, 25) || (t.mon == 12 && (t.day == 24 || t.day == 31))) // Christmas, eves
+      return true;
+   return false;
+  }
+
 bool DayAllowed(const datetime localDay, const datetime checkServer, string &why)
   {
    MqlDateTime d;
@@ -794,6 +857,11 @@ bool DayAllowed(const datetime localDay, const datetime checkServer, string &why
    if(InpSkipNFPDay && IsNFPDay(ServerToNY(checkServer)))
      {
       why = "NFP day";
+      return false;
+     }
+   if(InpSkipUSHolidays && IsUSHolidayOrEarlyClose(ServerToNY(checkServer)))
+     {
+      why = "US holiday / early close";
       return false;
      }
    return true;
@@ -1177,7 +1245,7 @@ void MarkFilled(const bool isBuy)
    g_s.status = isBuy ? "broken UP - long" : "broken DOWN - short";
    if(!InpOCO)
       return;
-   // OCO: the opposite side is finished; its pending order is deleted (and retried) by Housekeeping()
+   // OCO: the opposite side is finished
    if(isBuy)
      {
       g_s.sell.done   = true;
@@ -1188,7 +1256,20 @@ void MarkFilled(const bool isBuy)
       g_s.buy.done   = true;
       g_s.buy.signal = false;
      }
-   g_s.killPendings = true;
+   // delete the opposite stop in this same tick: on a spike bar the next tick may already fill it
+   ulong other = isBuy ? g_s.sell.ticket : g_s.buy.ticket;
+   if(other > 0 && OrderSelect(other))
+     {
+      if(g_trade.OrderDelete(other))
+        {
+         Log(StringFormat("OCO: deleted opposite pending %I64u", other), true);
+         SideGone(!isBuy);
+        }
+      else
+         Log(StringFormat("OCO: delete %I64u failed: %u %s - will retry", other, g_trade.ResultRetcode(),
+                          g_trade.ResultRetcodeDescription()), true);
+     }
+   g_s.killPendings = true;   // Housekeeping() retries a failed delete and covers restarts
   }
 
 void FailSide(const bool isBuy)
@@ -1346,6 +1427,14 @@ void ServiceCloseEntries()
               }
            }
         }
+     }
+   // no fresh entry at/after the time exit: it would be flattened on the next tick
+   datetime closeServer = CloseTimeFor(g_s.localDay);
+   if(closeServer > 0 && TimeCurrent() >= closeServer)
+     {
+      g_s.buy.signal  = false;
+      g_s.sell.signal = false;
+      return;
      }
    if(g_s.buy.signal && !g_s.buy.done)
      {
@@ -1800,7 +1889,7 @@ void UpdatePanel(const datetime now)
    g_lastPanel = now;
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   string s = "Gold Range Breakout v1.10  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
+   string s = "Gold Range Breakout v1.11  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
    s += StringFormat("%s time %s  |  server %s\n", TZName(), TimeToString(ServerToLocal(now), TIME_MINUTES),
                      TimeToString(now, TIME_MINUTES));
    s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f%s\n", InpCheckHour, InpCheckMinute, TZName(),
