@@ -1,0 +1,12 @@
+  cfg  range_end  n_posthoc  n_native  identical  IS_avgR
+   F5          7       1260      1260       True   0.0851
+   F5          5       1332      1332       True   0.1154
+   F1          7        797       797       True   0.1128
+   F1          5        645       645       True   0.1216
+   F2          7        593       593       True   0.1386
+   F2          5        436       436       True   0.1894
+w0.40          7        417       417       True   0.1158
+w0.40          5        289       289       True   0.2088
+days where atr/ma<=1 != atr<=ma: 0
+load(until) vs load(): 2306 2306 True True
+load(until) vs load(): 593 593 True True

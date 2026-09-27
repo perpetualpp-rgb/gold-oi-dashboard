@@ -37,15 +37,38 @@ VAL_END = "2023-12-31"     # validation: 2022-01-01 .. 2023-12-31
 # holdout: 2024-01-01 .. end of data
 
 _DATA = None
+_DATA_CUT = {}       # load(until=...) datasets, keyed by the cut date
 
 
-def load(force=False):
-    """Return dict of aligned numpy arrays + London local minute clock."""
+def load(force=False, until=None):
+    """Return dict of aligned numpy arrays + London local minute clock.
+
+    until: optional last London calendar date to keep (e.g. "2023-12-31" or engine.VAL_END). Bars
+    whose London clock time is on a later date are dropped right after the parquet files are read,
+    before anything (spread filter, daily features) is computed, so research code can mechanically
+    exclude the holdout. The cut dataset is cached separately (per `until`); load() with no
+    argument still returns (and caches) the full dataset exactly as before.
+    """
     global _DATA
-    if _DATA is not None and not force:
+    if until is None:
+        if _DATA is not None and not force:
+            return _DATA
+        _DATA = _build(None)
         return _DATA
+    key = str(pd.Timestamp(until).date())
+    if key not in _DATA_CUT or force:
+        _DATA_CUT[key] = _build(pd.Timestamp(key))
+    return _DATA_CUT[key]
+
+
+def _build(until):
     bid = pd.read_parquet(os.path.join(CACHE, "XAUUSD_M1_BID.parquet"))
     ask = pd.read_parquet(os.path.join(CACHE, "XAUUSD_M1_ASK.parquet"))
+    if until is not None:
+        # keep London dates <= until: the first dropped bar is at London midnight after `until`
+        cut = (until + pd.Timedelta(days=1)).tz_localize("Europe/London").tz_convert("UTC")
+        bid = bid[bid.index < cut]
+        ask = ask[ask.index < cut]
     idx = bid.index.intersection(ask.index)
     bid, ask = bid.loc[idx], ask.loc[idx]
     # drop obviously broken quotes (negative spread or absurd spread)
@@ -54,14 +77,14 @@ def load(force=False):
     bid, ask, idx = bid[ok], ask[ok], idx[ok]
     local = idx.tz_convert("Europe/London").tz_localize(None)
     lmin = (local.values.astype("datetime64[m]").astype(np.int64))  # minutes since epoch, London clock
-    _DATA = dict(
+    D = dict(
         index=idx,
         lmin=lmin,
         bo=bid["open"].values, bh=bid["high"].values, bl=bid["low"].values, bc=bid["close"].values,
         ao=ask["open"].values, ah=ask["high"].values, al=ask["low"].values, ac=ask["close"].values,
     )
-    _DATA["days"] = _daily(_DATA)
-    return _DATA
+    D["days"] = _daily(D)
+    return D
 
 
 def _daily(d):
@@ -108,6 +131,11 @@ class Params:
     comp_min: float = 0.0
     trend: int = 0               # 0 off; N = trade only in direction of prev close vs SMA(N)
     trend_mode: int = 0          # 0 = trend-following only, 1 = counter-trend only
+    atr_regime_n: int = 0        # ATR-regime filter (0 = off): trade day d only if
+    atr_regime_max: float = 1.0  #   atr14_prev[d] <= atr_regime_max * mean(atr14_prev[d-n+1..d]),
+                                 #   rolling over London trading days, min_periods = min(n, max(5, int(0.6 n)))
+                                 #   (n=20 -> 12, as explore/filters atr_vs_mean20); no trade while undefined.
+                                 #   Uses the same (lagged if range_end < 0) atr14_prev series as min_w_atr.
     dow_mask: tuple = (1, 1, 1, 1, 1)   # Mon..Fri
     skip_nfp: bool = False       # skip first Friday of month
     # costs
@@ -383,6 +411,11 @@ def run(p: Params, start=None, end=None, D=None):
     mask = valid & np.isfinite(atr) & (width > 0)
     wa = width / atr
     mask &= (wa >= p.min_w_atr) & (wa <= p.max_w_atr)
+    if p.atr_regime_n > 0:
+        n = int(p.atr_regime_n)
+        mp = min(n, max(5, int(n * 0.6)))
+        ma = pd.Series(atr).rolling(n, min_periods=mp).mean().values
+        mask &= np.isfinite(ma) & (atr <= p.atr_regime_max * ma)
     if p.comp_n > 0:
         med = pd.Series(width).rolling(p.comp_n, min_periods=max(5, p.comp_n // 2)).median().shift(1).values
         ratio = width / med

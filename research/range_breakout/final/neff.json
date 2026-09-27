@@ -1,0 +1,9 @@
+{
+ "n_configs": 24,
+ "mean_pairwise_corr": 0.6240107586541025,
+ "min_pairwise_corr": 0.31544627312428697,
+ "neff_participation": 2.31729272509213,
+ "n_eig_for_90pct": 5,
+ "sr_var_grid": 0.0012360788726855033,
+ "sr_mean_grid": 0.09512382295581745
+}

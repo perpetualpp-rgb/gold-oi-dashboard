@@ -317,3 +317,90 @@ def test_fade_limit_penetration_requirement():
     assert t.iloc[0].t_entry.minute == 1                         # the 08:01 bar (2006.5) fills it
     t = E.run(P(entry_mode=2, limit_pen=1.6), D=D)              # upper limit never traded 1.6 through
     assert (t.dir == -1).sum() == 0
+
+
+# ---------------------------------------------------------------------------------------------
+# Native ATR-regime filter (Params.atr_regime_n / atr_regime_max) and load(until=...)
+# ---------------------------------------------------------------------------------------------
+
+def test_atr_regime_filter_default_is_off():
+    assert E.Params().atr_regime_n == 0 and E.Params().atr_regime_max == 1.0
+    D = make_D([path_up_tp] * 3)
+    D["days"]["atr14_prev"] = [10.0, 50.0, 10.0]
+    assert len(E.run(P(), D=D)) == 3
+
+
+def test_atr_regime_filter_trades_only_calm_days_and_needs_min_periods():
+    # n=5 -> min_periods = max(5, 3) = 5: the first 4 days are undefined and never trade.
+    atr = [10, 10, 10, 10, 10, 20, 8, 9, 30, 10.0]
+    D = make_D([path_up_tp] * len(atr))
+    D["days"]["atr14_prev"] = atr
+    t = E.run(P(atr_regime_n=5, atr_regime_max=1.0), D=D)
+    s = pd.Series(atr)
+    mean5 = s.rolling(5, min_periods=5).mean()
+    expect = [d for d in range(len(atr)) if np.isfinite(mean5[d]) and atr[d] <= mean5[d] + 1e-12]
+    assert sorted(t["day"].tolist()) == expect
+    assert 5 not in expect and 8 not in expect and 4 in expect and 6 in expect
+    # a looser cap lets the high-ATR day 5 through: 20 <= 2.0 * mean(10,10,10,10,20) = 24
+    t2 = E.run(P(atr_regime_n=5, atr_regime_max=2.0), D=D)
+    assert 5 in t2["day"].tolist() and 0 not in t2["day"].tolist()
+
+
+def test_atr_regime_min_periods_for_long_window():
+    # n=20 -> min_periods 12 (same as explore/filters/features.py atr_vs_mean20)
+    atr = [10.0] * 14
+    D = make_D([path_up_tp] * len(atr))
+    D["days"]["atr14_prev"] = atr
+    t = E.run(P(atr_regime_n=20), D=D)
+    assert sorted(t["day"].tolist()) == list(range(11, 14))
+
+
+def test_atr_regime_uses_lagged_atr_when_range_ends_before_midnight():
+    def evening(m):
+        if 18 * 60 <= m < 20 * 60:
+            return (2000, 2005, 1995, 2000) if m % 30 == 0 else (2000, 2001, 1999, 2000)
+        if m == 20 * 60 + 30:
+            return (2000, 2006, 2000, 2006)
+        if m > 20 * 60 + 30:
+            return (2006, 2007, 2005.5, 2006.5)
+        return (2000, 2001, 1999, 2000)
+    # days: Mon..Fri, Mon, Tue, Wed. Monday's evening range would be on Sunday (no bars) -> no trade.
+    atr = [10, 10, 10, 10, 10, 10, 40, 10.0]
+    D = make_D([evening] * len(atr))
+    D["days"]["atr14_prev"] = atr
+    t = E.run(P(range_start=-6, range_end=-4, entry_end=-3.1, exit_time=-3, tp_r=0,
+                atr_regime_n=5), D=D)
+    # lagged series L[d] = atr[d-1] = [nan,10,10,10,10,10,10,40]: first defined on day 5 (a Monday,
+    # no range). Day 6 uses L=10 <= mean 10 -> trade; day 7 uses L=40 > mean(10,10,10,10,40) -> no trade.
+    # (Without the lag, days 4 and 7 would trade and day 6 would not.)
+    assert sorted(t["day"].tolist()) == [6]
+
+
+def _write_parquets(tmp_path, days):
+    idx = []
+    for d in days:
+        idx += list(pd.date_range(pd.Timestamp(d, tz="UTC"), periods=600, freq="1min"))
+    idx = pd.DatetimeIndex(idx, name="time")
+    px = 2000 + np.arange(len(idx)) * 0.01
+    bid = pd.DataFrame({"open": px, "high": px + 0.5, "low": px - 0.5, "close": px}, index=idx)
+    ask = bid + 0.2
+    bid.to_parquet(tmp_path / "XAUUSD_M1_BID.parquet")
+    ask.to_parquet(tmp_path / "XAUUSD_M1_ASK.parquet")
+
+
+def test_load_until_cuts_data_and_default_is_unchanged(tmp_path, monkeypatch):
+    _write_parquets(tmp_path, ["2023-12-28", "2023-12-29", "2024-01-02", "2024-01-03"])
+    monkeypatch.setattr(E, "CACHE", str(tmp_path))
+    monkeypatch.setattr(E, "_DATA", None)
+    full = E.load(force=True)
+    assert full["index"].max() >= pd.Timestamp("2024-01-03", tz="UTC")
+    assert len(full["days"]) == 4
+    cut = E.load(until="2023-12-31")
+    assert cut["index"].max() < pd.Timestamp("2024-01-01", tz="UTC")
+    assert cut["days"].index.max() <= pd.Timestamp("2023-12-31")
+    assert len(cut["bo"]) == len(cut["lmin"]) == len(cut["index"]) == 1200
+    # the cut does not replace the cached full dataset
+    assert E.load() is full
+    # and the cut arrays equal the head of the full arrays
+    assert np.array_equal(cut["bo"], full["bo"][:1200])
+    assert np.allclose(cut["days"]["atr14_prev"].values, full["days"]["atr14_prev"].values[:2], equal_nan=True)

@@ -1,0 +1,176 @@
+{
+ "primary|real_ask": {
+  "n": 38,
+  "avg_R": 0.2594,
+  "sum_R": 9.86,
+  "long_n": 24,
+  "short_n": 14,
+  "sl_n": 19
+ },
+ "primary|model_ask": {
+  "n": 38,
+  "avg_R": 0.2587,
+  "sum_R": 9.83,
+  "long_n": 24,
+  "short_n": 14,
+  "sl_n": 19
+ },
+ "primary|real_ask_x1.5": {
+  "n": 39,
+  "avg_R": 0.1829,
+  "sum_R": 7.13,
+  "long_n": 26,
+  "short_n": 13,
+  "sl_n": 21
+ },
+ "primary|model_ask_x1.5": {
+  "n": 39,
+  "avg_R": 0.1815,
+  "sum_R": 7.08,
+  "long_n": 26,
+  "short_n": 13,
+  "sl_n": 21
+ },
+ "primary|real_ask_x2.0": {
+  "n": 39,
+  "avg_R": 0.1302,
+  "sum_R": 5.08,
+  "long_n": 26,
+  "short_n": 13,
+  "sl_n": 22
+ },
+ "primary|model_ask_x2.0": {
+  "n": 39,
+  "avg_R": 0.1766,
+  "sum_R": 6.89,
+  "long_n": 26,
+  "short_n": 13,
+  "sl_n": 21
+ },
+ "primary|diff": {
+  "common": 38,
+  "only_real": 0,
+  "only_model": 0,
+  "diff_dir": 0,
+  "common_meanR_real": 0.2594,
+  "common_meanR_model": 0.2587,
+  "common_mean_diff": 0.0007,
+  "exit_reason_changed": 0
+ },
+ "primary_nofilter|real_ask": {
+  "n": 172,
+  "avg_R": 0.0011,
+  "sum_R": 0.19,
+  "long_n": 109,
+  "short_n": 63,
+  "sl_n": 101
+ },
+ "primary_nofilter|model_ask": {
+  "n": 171,
+  "avg_R": 0.0056,
+  "sum_R": 0.95,
+  "long_n": 108,
+  "short_n": 63,
+  "sl_n": 100
+ },
+ "primary_nofilter|real_ask_x1.5": {
+  "n": 173,
+  "avg_R": -0.0293,
+  "sum_R": -5.07,
+  "long_n": 113,
+  "short_n": 60,
+  "sl_n": 104
+ },
+ "primary_nofilter|model_ask_x1.5": {
+  "n": 173,
+  "avg_R": -0.0202,
+  "sum_R": -3.49,
+  "long_n": 113,
+  "short_n": 60,
+  "sl_n": 103
+ },
+ "primary_nofilter|real_ask_x2.0": {
+  "n": 173,
+  "avg_R": -0.0445,
+  "sum_R": -7.7,
+  "long_n": 115,
+  "short_n": 58,
+  "sl_n": 105
+ },
+ "primary_nofilter|model_ask_x2.0": {
+  "n": 173,
+  "avg_R": -0.0255,
+  "sum_R": -4.41,
+  "long_n": 115,
+  "short_n": 58,
+  "sl_n": 103
+ },
+ "primary_nofilter|diff": {
+  "common": 171,
+  "only_real": 1,
+  "only_model": 0,
+  "diff_dir": 0,
+  "common_meanR_real": 0.007,
+  "common_meanR_model": 0.0056,
+  "common_mean_diff": 0.0015,
+  "exit_reason_changed": 0
+ },
+ "fallback|real_ask": {
+  "n": 58,
+  "avg_R": 0.1207,
+  "sum_R": 7.0,
+  "long_n": 33,
+  "short_n": 25,
+  "sl_n": 23
+ },
+ "fallback|model_ask": {
+  "n": 57,
+  "avg_R": 0.1384,
+  "sum_R": 7.89,
+  "long_n": 32,
+  "short_n": 25,
+  "sl_n": 22
+ },
+ "fallback|real_ask_x1.5": {
+  "n": 59,
+  "avg_R": 0.0964,
+  "sum_R": 5.69,
+  "long_n": 35,
+  "short_n": 24,
+  "sl_n": 24
+ },
+ "fallback|model_ask_x1.5": {
+  "n": 59,
+  "avg_R": 0.0932,
+  "sum_R": 5.5,
+  "long_n": 35,
+  "short_n": 24,
+  "sl_n": 24
+ },
+ "fallback|real_ask_x2.0": {
+  "n": 59,
+  "avg_R": 0.0905,
+  "sum_R": 5.34,
+  "long_n": 35,
+  "short_n": 24,
+  "sl_n": 24
+ },
+ "fallback|model_ask_x2.0": {
+  "n": 59,
+  "avg_R": 0.0869,
+  "sum_R": 5.13,
+  "long_n": 35,
+  "short_n": 24,
+  "sl_n": 24
+ },
+ "fallback|diff": {
+  "common": 57,
+  "only_real": 1,
+  "only_model": 0,
+  "diff_dir": 0,
+  "common_meanR_real": 0.1405,
+  "common_meanR_model": 0.1384,
+  "common_mean_diff": 0.0021,
+  "exit_reason_changed": 0
+ }
+}

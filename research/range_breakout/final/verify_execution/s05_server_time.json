@@ -1,0 +1,139 @@
+{
+ "offset_counts": {
+  "2.0": 2425,
+  "3.0": 169
+ },
+ "mismatch_days": 169,
+ "engine": {
+  "IS": {
+   "n": 532,
+   "avg_R": 0.1216
+  },
+  "VAL": {
+   "n": 113,
+   "avg_R": 0.0202
+  },
+  "ALL": {
+   "n": 645,
+   "avg_R": 0.1038
+  }
+ },
+ "A_hardcoded_NY+7": {
+  "IS": {
+   "n": 533,
+   "avg_R": 0.139
+  },
+  "VAL": {
+   "n": 113,
+   "avg_R": 0.0374
+  },
+  "ALL": {
+   "n": 646,
+   "avg_R": 0.1212
+  }
+ },
+ "B_fixed_GMT+2": {
+  "IS": {
+   "n": 534,
+   "avg_R": 0.1481
+  },
+  "VAL": {
+   "n": 120,
+   "avg_R": 0.0424
+  },
+  "ALL": {
+   "n": 654,
+   "avg_R": 0.1287
+  }
+ },
+ "C_tester_TimeGMT": {
+  "IS": {
+   "n": 302,
+   "avg_R": 0.1639
+  },
+  "VAL": {
+   "n": 57,
+   "avg_R": 0.061
+  },
+  "ALL": {
+   "n": 359,
+   "avg_R": 0.1476
+  }
+ },
+ "A_changed_trades": {
+  "mism_days_with_trade_engine": 41,
+  "mism_days_with_trade_A": 42,
+  "engine_R_on_mism": -2.39,
+  "A_R_on_mism": 8.98
+ },
+ "all_days_shift_-3h": {
+  "IS": {
+   "n": 250,
+   "avg_R": 0.1244
+  },
+  "VAL": {
+   "n": 46,
+   "avg_R": 0.1553
+  },
+  "ALL": {
+   "n": 296,
+   "avg_R": 0.1292
+  }
+ },
+ "all_days_shift_-2h": {
+  "IS": {
+   "n": 445,
+   "avg_R": 0.0544
+  },
+  "VAL": {
+   "n": 93,
+   "avg_R": 0.0651
+  },
+  "ALL": {
+   "n": 538,
+   "avg_R": 0.0562
+  }
+ },
+ "all_days_shift_-1h": {
+  "IS": {
+   "n": 543,
+   "avg_R": 0.1617
+  },
+  "VAL": {
+   "n": 110,
+   "avg_R": 0.0087
+  },
+  "ALL": {
+   "n": 653,
+   "avg_R": 0.1359
+  }
+ },
+ "all_days_shift_0h": {
+  "IS": {
+   "n": 532,
+   "avg_R": 0.1216
+  },
+  "VAL": {
+   "n": 113,
+   "avg_R": 0.0202
+  },
+  "ALL": {
+   "n": 645,
+   "avg_R": 0.1038
+  }
+ },
+ "all_days_shift_1h": {
+  "IS": {
+   "n": 520,
+   "avg_R": 0.1318
+  },
+  "VAL": {
+   "n": 118,
+   "avg_R": 0.0776
+  },
+  "ALL": {
+   "n": 638,
+   "avg_R": 0.1217
+  }
+ }
+}
