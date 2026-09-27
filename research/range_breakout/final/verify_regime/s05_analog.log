@@ -1,0 +1,65 @@
+{'atr_pct_IS_terciles': [np.float64(1.057), np.float64(1.371)], 'ratio_quantiles': {'q5': 0.801, 'q25': 0.904, 'q50': 0.983, 'q75': 1.078, 'q95': 1.321}, 'ratio_pass_at': {'0.95': 0.391, '0.97': 0.463, '0.98': 0.491, '0.99': 0.522, '1.0': 0.553, '1.01': 0.583, '1.02': 0.612, '1.03': 0.644, '1.05': 0.687}, 'ratio_shift_if_ATR_doubles_in_1y': 0.0265, 'ratio_shift_if_ATR_doubles_in_2y': 0.0132, 'ratio_shift_if_ATR_doubles_in_4y': 0.0066}
+               regime  days  pass_w030  pass_w035  pass_regime  pass_both  implied_trades_per_yr_primary
+                  all  2553      0.501      0.350        0.552      0.281                           66.0
+            bull>0.10   988      0.503      0.366        0.583      0.304                           71.0
+            bull>0.25   445      0.508      0.371        0.587      0.297                           70.0
+  atr_pct_top_tercile   881      0.461      0.325        0.368      0.188                           44.0
+bull>0.10&atr_pct_top   443      0.460      0.332        0.422      0.205                           48.0
+bull>0.25&atr_pct_top   300      0.490      0.340        0.523      0.260                           61.0
+             slope<=0  1114      0.513      0.351        0.524      0.274                           64.0
+           cfg                regime   per    n   avg_R     t  sum_R   win      L      S
+       primary                   all ISVAL  645  0.1038  1.83   67.0 0.433  0.122  0.083
+       primary                   all    IS  532  0.1216  1.94   64.7 0.445  0.176  0.060
+       primary                   all   VAL  113  0.0202  0.16    2.3 0.372 -0.120  0.197
+       primary             bull>0.10 ISVAL  267  0.0480  0.57   12.8 0.431  0.064  0.032
+       primary             bull>0.10    IS  223  0.0965  1.03   21.5 0.457  0.125  0.070
+       primary             bull>0.10   VAL   44 -0.1974 -1.00   -8.7 0.295 -0.197 -0.197
+       primary             bull>0.25 ISVAL  118 -0.0521 -0.45   -6.1 0.398 -0.143  0.019
+       primary             bull>0.25    IS   93 -0.0057 -0.05   -0.5 0.430 -0.113  0.068
+       primary             bull>0.25   VAL   25 -0.2246 -0.77   -5.6 0.280 -0.223 -0.226
+       primary           atr_pct_top ISVAL  151  0.0566  0.55    8.5 0.444 -0.064  0.161
+       primary           atr_pct_top    IS  131  0.1092  0.96   14.3 0.450 -0.016  0.212
+       primary           atr_pct_top   VAL   20 -0.2879 -1.47   -5.8 0.400 -0.320 -0.248
+       primary bull>0.10&atr_pct_top ISVAL   79 -0.0957 -0.79   -7.6 0.405 -0.246 -0.003
+       primary bull>0.10&atr_pct_top    IS   70 -0.0288 -0.22   -2.0 0.429 -0.193  0.068
+       primary bull>0.10&atr_pct_top   VAL    9 -0.6157 -2.35   -5.5 0.222 -0.595 -0.632
+       primary              slope<=0 ISVAL  276  0.2282  2.43   63.0 0.457  0.294  0.151
+       primary              slope<=0    IS  222  0.2612  2.43   58.0 0.464  0.400  0.101
+       primary              slope<=0   VAL   54  0.0928  0.50    5.0 0.426 -0.127  0.367
+      fallback                   all ISVAL  785  0.1147  2.56   90.1 0.452  0.090  0.144
+      fallback                   all    IS  638  0.1320  2.63   84.2 0.462  0.106  0.164
+      fallback                   all   VAL  147  0.0401  0.40    5.9 0.408  0.023  0.060
+      fallback             bull>0.10 ISVAL  313  0.0514  0.71   16.1 0.431 -0.005  0.111
+      fallback             bull>0.10    IS  255  0.0617  0.77   15.7 0.439 -0.048  0.180
+      fallback             bull>0.10   VAL   58  0.0061  0.04    0.4 0.397  0.191 -0.179
+      fallback             bull>0.25 ISVAL  141 -0.0021 -0.02   -0.3 0.404  0.007 -0.009
+      fallback             bull>0.25    IS  108  0.0366  0.30    4.0 0.426 -0.064  0.114
+      fallback             bull>0.25   VAL   33 -0.1288 -0.54   -4.3 0.333  0.242 -0.402
+      fallback           atr_pct_top ISVAL  245  0.1628  1.95   39.9 0.465  0.017  0.310
+      fallback           atr_pct_top    IS  203  0.2285  2.42   46.4 0.483  0.089  0.359
+      fallback           atr_pct_top   VAL   42 -0.1543 -0.93   -6.5 0.381 -0.266  0.010
+      fallback bull>0.10&atr_pct_top ISVAL  121  0.0097  0.09    1.2 0.421 -0.217  0.180
+      fallback bull>0.10&atr_pct_top    IS   98  0.0452  0.37    4.4 0.429 -0.178  0.199
+      fallback bull>0.10&atr_pct_top   VAL   23 -0.1415 -0.61   -3.3 0.391 -0.344  0.080
+      fallback              slope<=0 ISVAL  347  0.1630  2.48   56.6 0.467  0.193  0.124
+      fallback              slope<=0    IS  280  0.2032  2.73   56.9 0.482  0.273  0.113
+      fallback              slope<=0   VAL   67 -0.0050 -0.04   -0.3 0.403 -0.131  0.171
+unfiltered_re5                   all ISVAL 2428  0.0358  1.06   86.8 0.363  0.002  0.075
+unfiltered_re5                   all    IS 1933  0.0374  1.00   72.3 0.371  0.009  0.071
+unfiltered_re5                   all   VAL  495  0.0294  0.38   14.6 0.329 -0.024  0.088
+unfiltered_re5             bull>0.10 ISVAL  924 -0.0004 -0.01   -0.4 0.361 -0.020  0.020
+unfiltered_re5             bull>0.10    IS  721 -0.0100 -0.18   -7.2 0.369 -0.027  0.009
+unfiltered_re5             bull>0.10   VAL  203  0.0336  0.28    6.8 0.335  0.008  0.059
+unfiltered_re5             bull>0.25 ISVAL  419  0.0230  0.29    9.6 0.368  0.036  0.011
+unfiltered_re5             bull>0.25    IS  324  0.0163  0.19    5.3 0.383  0.058 -0.023
+unfiltered_re5             bull>0.25   VAL   95  0.0457  0.24    4.3 0.316 -0.044  0.123
+unfiltered_re5           atr_pct_top ISVAL  832 -0.0290 -0.58  -24.1 0.367 -0.071  0.017
+unfiltered_re5           atr_pct_top    IS  641 -0.0240 -0.44  -15.4 0.379 -0.050  0.005
+unfiltered_re5           atr_pct_top   VAL  191 -0.0456 -0.39   -8.7 0.325 -0.144  0.056
+unfiltered_re5 bull>0.10&atr_pct_top ISVAL  409 -0.0241 -0.33   -9.8 0.367 -0.045 -0.004
+unfiltered_re5 bull>0.10&atr_pct_top    IS  299 -0.0776 -1.01  -23.2 0.371 -0.044 -0.112
+unfiltered_re5 bull>0.10&atr_pct_top   VAL  110  0.1213  0.69   13.3 0.355 -0.045  0.276
+unfiltered_re5              slope<=0 ISVAL 1064  0.0499  0.99   53.1 0.366  0.067  0.029
+unfiltered_re5              slope<=0    IS  856  0.0737  1.31   63.1 0.377  0.119  0.019
+unfiltered_re5              slope<=0   VAL  208 -0.0481 -0.42  -10.0 0.317 -0.149  0.071
+{'diff': np.float64(0.2099), 't': np.float64(1.78)}
