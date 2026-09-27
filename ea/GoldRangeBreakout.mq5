@@ -25,7 +25,7 @@
 //| a restart and are retried until they succeed.                    |
 //+------------------------------------------------------------------+
 #property copyright "gold-oi-dashboard"
-#property version   "1.13"
+#property version   "1.14"
 #property description "Range Breakout for XAUUSD: daily range before a session open, DST-aware check time, ATR range filter, pending or close-confirmed entries, ATR-scaled distances, risk-based lots."
 
 #include <Trade/Trade.mqh>
@@ -205,6 +205,7 @@ struct GRBSide
    bool              done;      // nothing more to do for this side
    bool              filled;    // this side became a position
    bool              signal;    // close-confirmed mode: breakout candle seen, market entry pending
+   bool              postponed; // close-confirmed mode: the entry was held back (spread) at least once
    ulong             ticket;    // pending order ticket (0 = not placed)
    double            entry;     // trigger price (pending price / close threshold)
    int               fails;     // failed order attempts
@@ -1466,8 +1467,10 @@ void ServiceCloseEntries()
    if(bar0 > 0 && bar0 != g_s.lastBar0)
      {
       // a signal only lives until the next candle closes
-      g_s.buy.signal  = false;
-      g_s.sell.signal = false;
+      g_s.buy.signal     = false;
+      g_s.sell.signal    = false;
+      g_s.buy.postponed  = false;
+      g_s.sell.postponed = false;
       MqlRates r[];
       int n = CopyRates(_Symbol, InpRangeTF, 1, 64, r);   // closed candles, oldest first
       if(n > 0)
@@ -1502,9 +1505,9 @@ void ServiceCloseEntries()
      }
    // a signal postponed by the spread filter lapses once price is back inside the level
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   if(g_s.buy.signal && bid < g_s.buy.entry)
+   if(g_s.buy.signal && g_s.buy.postponed && bid < g_s.buy.entry)
       g_s.buy.signal = false;
-   if(g_s.sell.signal && bid > g_s.sell.entry)
+   if(g_s.sell.signal && g_s.sell.postponed && bid > g_s.sell.entry)
       g_s.sell.signal = false;
    if(g_s.buy.signal && !g_s.buy.done)
      {
@@ -1514,6 +1517,8 @@ void ServiceCloseEntries()
       else
          if(res < 0)
             FailSide(true);
+         else
+            g_s.buy.postponed = true;
      }
    else
       if(g_s.sell.signal && !g_s.sell.done)
@@ -1524,6 +1529,8 @@ void ServiceCloseEntries()
          else
             if(res < 0)
                FailSide(false);
+            else
+               g_s.sell.postponed = true;
         }
   }
 
@@ -1536,6 +1543,7 @@ void ResetSide(GRBSide &side)
    side.done    = true;
    side.filled  = false;
    side.signal  = false;
+   side.postponed = false;
    side.ticket  = 0;
    side.entry   = 0.0;
    side.fails   = 0;
@@ -1636,6 +1644,26 @@ void ArmSetup(const datetime localDay, const double top, const double bottom, co
    DrawBox(firstBar, g_s.windowEnd, top, bottom, InpColForming, info);
   }
 
+// a fresh setup starts: stop orders still live belong to an earlier setup (e.g. after the check
+// time was edited mid-window) and must not run alongside the new ones
+void DeleteEarlierPendings()
+  {
+   ulong tk;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!SelectOurOrder(i, tk))
+         continue;
+      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP)
+         continue;
+      if(g_trade.OrderDelete(tk))
+         Log(StringFormat("Deleted pending %I64u left from an earlier setup", tk), true);
+      else
+         Log(StringFormat("Delete of earlier pending %I64u failed: %u %s", tk, g_trade.ResultRetcode(),
+                          g_trade.ResultRetcodeDescription()), true);
+     }
+  }
+
 ENUM_GRB_BUILD BuildSetup(const datetime localDay, const datetime checkServer)
   {
    EndSetup("new day");
@@ -1707,6 +1735,7 @@ ENUM_GRB_BUILD BuildSetup(const datetime localDay, const datetime checkServer)
       return GRB_BUILD_DONE;
      }
 
+   DeleteEarlierPendings();
    ArmSetup(localDay, top, bottom, firstBar, lastBar, atr, false);
    Log(StringFormat("%s range %s - %s (%.1f pips, %.2f ATR), buy >= %s, sell <= %s, window until %s, VV factor %.3f", day,
                     DoubleToString(bottom, _Digits), DoubleToString(top, _Digits), height / g_pip, height / atr,
@@ -1978,7 +2007,7 @@ void UpdatePanel(const datetime now)
    g_lastPanel = now;
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   string s = "Gold Range Breakout v1.13  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
+   string s = "Gold Range Breakout v1.14  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
    s += StringFormat("%s time %s  |  server %s\n", TZName(), TimeToString(ServerToLocal(now), TIME_MINUTES),
                      TimeToString(now, TIME_MINUTES));
    s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f%s\n", InpCheckHour, InpCheckMinute, TZName(),
@@ -2013,8 +2042,10 @@ bool RecoverState(const datetime now)
   {
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   if(now >= checkServer)
-      g_lastDay = localDay;              // today's check time is behind us: no late fresh setup
+   // today's check is behind us: no fresh setup if today was already armed, or if it is too late
+   // (within the normal late-tick tolerance OnTick still builds it, e.g. after a re-init at 16:29)
+   if(now >= checkServer && ((datetime)GVGet("A_DAY", 0) == localDay || now - checkServer > GRB_LATE_SECONDS))
+      g_lastDay = localDay;
 
    datetime day = SetupDayOf(now);        // the setup whose window could still be open
    if((datetime)GVGet("A_DAY", 0) != day || GVGet("A_ACT", 0) < 0.5 || now >= WindowEndFor(day))
@@ -2154,7 +2185,7 @@ int OnInit()
    g_optimizing = (bool)MQLInfoInteger(MQL_OPTIMIZATION);
    g_pip        = DetectPip();
    g_prefix     = StringFormat("GRB_%I64u_", InpMagic);
-   g_gv         = StringFormat("GRB_%I64u_%I64d_%s_", InpMagic, AccountInfoInteger(ACCOUNT_LOGIN), _Symbol);
+   g_gv         = "";   // set on the first tick, once the account login is known
 
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetDeviationInPoints(InpSlippagePoints);
@@ -2187,8 +2218,8 @@ int OnInit()
    g_nextCleanupTry   = 0;
    g_noSpecifiedExpiry = false;
    g_liveOffsetValid  = false;
-   g_killDay          = (datetime)GVGet("KILL", 0);
-   g_needRecover      = true;   // state is rebuilt on the first tick (server time / history are fresh then)
+   g_killDay          = 0;
+   g_needRecover      = true;   // state is rebuilt on the first tick (server time / history / login are fresh then)
    UpdateLiveOffset();
    datetime now = TimeCurrent();
    UpdateVV();
@@ -2220,6 +2251,11 @@ void OnTick()
    UpdateLiveOffset();
    if(g_needRecover)
      {
+      long login = AccountInfoInteger(ACCOUNT_LOGIN);
+      if(login == 0 && !g_tester)
+         return;   // not authorised yet: the persisted state is keyed by the account
+      g_gv      = StringFormat("GRB_%I64u_%I64d_%s_", InpMagic, login, _Symbol);
+      g_killDay = (datetime)GVGet("KILL", 0);
       LoadGuard(now);
       CleanupRiskRecords();
       if(!RecoverState(now))
