@@ -6,6 +6,10 @@
    feeds must be 0 with a small median close difference.
 3. Coverage: live M1 bars per weekday, per year (a full day is ~1380).
 Exits non-zero if any test fails.
+
+Usage: python3 check_alignment.py [--until YYYY-MM-DD]
+  --until 2024-01-01 restricts every check to data before that date (use it during research so the
+  holdout period is never read).
 """
 import glob
 import os
@@ -17,8 +21,10 @@ import pandas as pd
 import engine as E
 
 
-def main():
+def main(until=None):
     full = pd.read_parquet(os.path.join(E.CACHE, "XAUUSD_M1_BID.parquet"))
+    if until is not None:
+        full = full[full.index < pd.Timestamp(until, tz="UTC")]
     bid = full["close"]
     fails = 0
 
@@ -32,11 +38,19 @@ def main():
     rate = ok.groupby(reopen.dt.year).mean().round(3)
     print("daily-halt reopen at 18:00 NY, share by year:\n", rate.to_string())
     fails += int((rate < 0.9).sum())
+    # the calibration differs between regimes only when US and EU DST disagree (~3 weeks a year)
+    ny, lo = reopen.dt.tz_convert("America/New_York"), reopen.dt.tz_convert("Europe/London")
+    mis = ny.map(lambda x: x.dst() != pd.Timedelta(0)) != lo.map(lambda x: x.dst() != pd.Timedelta(0))
+    rate_m = ok[mis].groupby(reopen[mis].dt.year).mean().round(3)
+    print("same, US/EU DST-mismatch weeks only:\n", rate_m.to_string())
+    fails += int((rate_m < 0.8).sum())
 
     bad = 0
     n = 0
     for f in sorted(glob.glob(os.path.join(E.CACHE, "raw", "XAUUSD_BID_*.npy"))):
         day = pd.Timestamp(os.path.basename(f)[11:19], tz="UTC")
+        if until is not None and day >= pd.Timestamp(until, tz="UTC"):
+            continue
         r = np.load(f)
         if len(r) == 0:
             continue
@@ -69,4 +83,7 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--until", default=None)
+    sys.exit(main(ap.parse_args().until))

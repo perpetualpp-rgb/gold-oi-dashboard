@@ -1,0 +1,63 @@
+OLD default                        IS: n=1828 avgR=+0.0073 t=+0.22 PF=1.014 DD=43.8
+                                   VAL: n=478 avgR=-0.0115 t=-0.17 PF=0.980 DD=37.4
+NEW default                        IS: n=1828 avgR=+0.0078 t=+0.23 PF=1.015 DD=43.5
+                                   VAL: n=478 avgR=-0.0105 t=-0.16 PF=0.981 DD=37.1
+                                   trade count change +0; old trades exiting on a later day: 12, new: 0
+OLD tp2                            IS: n=1828 avgR=-0.0185 t=-0.68 PF=0.964 DD=65.2
+                                   VAL: n=478 avgR=-0.0257 t=-0.47 PF=0.953 DD=41.7
+NEW tp2                            IS: n=1828 avgR=-0.0180 t=-0.66 PF=0.965 DD=63.5
+                                   VAL: n=478 avgR=-0.0244 t=-0.45 PF=0.955 DD=41.4
+                                   trade count change +0; old trades exiting on a later day: 11, new: 0
+OLD max_trades2                    IS: n=2088 avgR=-0.0026 t=-0.08 PF=0.995 DD=56.7
+                                   VAL: n=560 avgR=-0.0371 t=-0.59 PF=0.936 DD=50.0
+NEW max_trades2                    IS: n=2104 avgR=+0.0003 t=+0.01 PF=1.000 DD=51.6
+                                   VAL: n=560 avgR=-0.0348 t=-0.56 PF=0.940 DD=50.1
+                                   trade count change +16; old trades exiting on a later day: 13, new: 0
+OLD max_trades2_sl_opp             IS: n=2087 avgR=-0.0065 t=-0.21 PF=0.988 DD=60.9
+                                   VAL: n=560 avgR=-0.0376 t=-0.61 PF=0.935 DD=51.4
+NEW max_trades2_sl_opp             IS: n=2104 avgR=-0.0048 t=-0.15 PF=0.991 DD=58.2
+                                   VAL: n=560 avgR=-0.0325 t=-0.52 PF=0.944 DD=50.4
+                                   trade count change +17; old trades exiting on a later day: 13, new: 0
+OLD trail1                         IS: n=1828 avgR=+0.0033 t=+0.12 PF=1.007 DD=34.4
+                                   VAL: n=478 avgR=-0.0253 t=-0.48 PF=0.946 DD=31.2
+NEW trail1                         IS: n=1828 avgR=+0.0036 t=+0.13 PF=1.008 DD=33.1
+                                   VAL: n=478 avgR=-0.0241 t=-0.46 PF=0.949 DD=30.9
+                                   trade count change +0; old trades exiting on a later day: 8, new: 0
+OLD confirm15                      IS: n=1589 avgR=-0.0147 t=-0.41 PF=0.973 DD=55.2
+                                   VAL: n=430 avgR=-0.0489 t=-0.72 PF=0.914 DD=57.6
+NEW confirm15                      IS: n=1565 avgR=-0.0211 t=-0.59 PF=0.962 DD=54.8
+                                   VAL: n=426 avgR=-0.0554 t=-0.83 PF=0.902 DD=55.2
+                                   trade count change -28; old trades exiting on a later day: 10, new: 0
+OLD confirm15_mt2                  IS: n=1693 avgR=-0.0218 t=-0.63 PF=0.961 DD=63.1
+                                   VAL: n=467 avgR=-0.0470 t=-0.70 PF=0.918 DD=54.4
+NEW confirm15_mt2                  IS: n=1665 avgR=-0.0265 t=-0.76 PF=0.952 DD=61.3
+                                   VAL: n=460 avgR=-0.0504 t=-0.76 PF=0.912 DD=52.8
+                                   trade count change -35; old trades exiting on a later day: 10, new: 0
+OLD fade_tp1                       IS: n=1748 avgR=-0.1088 t=-4.92 PF=0.781 DD=206.0
+                                   VAL: n=465 avgR=-0.0870 t=-2.02 PF=0.823 DD=41.5
+NEW fade_tp1                       IS: n=1748 avgR=-0.1087 t=-4.92 PF=0.781 DD=205.9
+                                   VAL: n=465 avgR=-0.0879 t=-2.04 PF=0.821 DD=41.9
+                                   trade count change +0; old trades exiting on a later day: 2, new: 0
+OLD trend50                        IS: n=1029 avgR=+0.0205 t=+0.44 PF=1.037 DD=30.7
+                                   VAL: n=283 avgR=-0.0614 t=-0.72 PF=0.895 DD=33.9
+NEW trend50                        IS: n=1011 avgR=+0.0272 t=+0.57 PF=1.049 DD=30.6
+                                   VAL: n=283 avgR=-0.0613 t=-0.72 PF=0.895 DD=34.0
+                                   trade count change -18; old trades exiting on a later day: 7, new: 0
+OLD exit_21_59                     IS: n=1828 avgR=+0.0154 t=+0.45 PF=1.028 DD=38.7
+                                   VAL: n=478 avgR=-0.0135 t=-0.20 PF=0.976 DD=36.5
+NEW exit_21_59                     IS: n=1828 avgR=+0.0152 t=+0.44 PF=1.028 DD=38.8
+                                   VAL: n=478 avgR=-0.0113 t=-0.17 PF=0.980 DD=35.7
+                                   trade count change +0; old trades exiting on a later day: 30, new: 0
+configs: 10
+
+COST SENSITIVITY (default Params, IS / VAL, longs|shorts IS)
+slip=0.05 spread+0.00: IS avgR +0.0078 t +0.23 | VAL avgR -0.0105 t -0.16 | IS L -0.0082 S +0.0261
+slip=0.05 spread+0.10: IS avgR -0.0145 t -0.44 | VAL avgR -0.0473 t -0.76 | IS L -0.0331 S +0.0078
+slip=0.05 spread+0.20: IS avgR -0.0330 t -1.02 | VAL avgR -0.0653 t -1.06 | IS L -0.0516 S -0.0097
+slip=0.10 spread+0.00: IS avgR -0.0109 t -0.33 | VAL avgR -0.0203 t -0.31 | IS L -0.0259 S +0.0063
+slip=0.10 spread+0.10: IS avgR -0.0321 t -0.98 | VAL avgR -0.0696 t -1.12 | IS L -0.0496 S -0.0111
+slip=0.10 spread+0.20: IS avgR -0.0511 t -1.58 | VAL avgR -0.0751 t -1.22 | IS L -0.0680 S -0.0300
+slip=0.20 spread+0.00: IS avgR -0.0436 t -1.32 | VAL avgR -0.0527 t -0.80 | IS L -0.0553 S -0.0301
+slip=0.20 spread+0.10: IS avgR -0.0665 t -2.04 | VAL avgR -0.0924 t -1.50 | IS L -0.0802 S -0.0501
+slip=0.20 spread+0.20: IS avgR -0.0912 t -2.84 | VAL avgR -0.0953 t -1.55 | IS L -0.0988 S -0.0817
+IS default: median risk USD 5.52 median round-trip cost USD 0.47 => median cost in R 0.0822 mean 0.0897

@@ -1,0 +1,18 @@
+IS {'label': 'IS', 'n': 1828, 'trades_per_year': 230.2, 'win_rate': np.float64(0.391), 'avg_R': np.float64(0.0078), 'total_R': np.float64(14.2), 'PF': np.float64(1.015), 't_stat': np.float64(0.23), 'sharpe_ann': np.float64(0.08), 'maxDD_R': np.float64(43.5), 'avg_win_R': np.float64(1.393), 'avg_loss_R': np.float64(-0.88), 'usd_per_oz': np.float64(119.2)}
+VAL {'label': 'VAL', 'n': 478, 'trades_per_year': 240.8, 'win_rate': np.float64(0.366), 'avg_R': np.float64(-0.0105), 'total_R': np.float64(-5.0), 'PF': np.float64(0.981), 't_stat': np.float64(-0.16), 'sharpe_ann': np.float64(-0.11), 'maxDD_R': np.float64(37.1), 'avg_win_R': np.float64(1.497), 'avg_loss_R': np.float64(-0.881), 'usd_per_oz': np.float64(-0.0)}
+IS long {'n': 976, 'avg_R': np.float64(-0.0082), 'win_rate': np.float64(0.383), 'PF': np.float64(0.985), 't_stat': np.float64(-0.18), 'trades_per_year': 123.0, 'maxDD_R': np.float64(42.4)}
+IS short {'n': 852, 'avg_R': np.float64(0.0261), 'win_rate': np.float64(0.399), 'PF': np.float64(1.048), 't_stat': np.float64(0.53), 'trades_per_year': 107.3, 'maxDD_R': np.float64(44.6)}
+VAL long {'n': 256, 'avg_R': np.float64(-0.0927), 'win_rate': np.float64(0.34), 'PF': np.float64(0.841), 't_stat': np.float64(-1.09), 'trades_per_year': 129.1, 'maxDD_R': np.float64(35.9)}
+VAL short {'n': 222, 'avg_R': np.float64(0.0844), 'win_rate': np.float64(0.396), 'PF': np.float64(1.159), 't_stat': np.float64(0.81), 'trades_per_year': 112.0, 'maxDD_R': np.float64(22.1)}
+        n    win  avg_R  sum_R
+date                          
+2014  222  0.396  0.031    6.9
+2015  230  0.413  0.167   38.4
+2016  213  0.394 -0.023   -4.9
+2017  227  0.410 -0.003   -0.7
+2018  237  0.397  0.014    3.4
+2019  230  0.348 -0.147  -33.9
+2020  231  0.429  0.100   23.2
+2021  238  0.340 -0.076  -18.2
+2022  242  0.405  0.017    4.1
+2023  236  0.326 -0.038   -9.1

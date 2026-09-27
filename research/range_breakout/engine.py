@@ -9,9 +9,17 @@ Conventions (kept deliberately conservative):
 - If SL and TP are both inside one M1 bar, SL is assumed first. On the entry bar only SL is checked.
 - Take-profit fills exactly at the TP price (no favourable gap fill).
 - If both breakout levels are touched in the same bar before a position exists, the day is skipped.
+- Time exit: market order at the open of the first bar at/after `exit_time`. If the market is closed at
+  `exit_time` (US-holiday early close, Friday close, exit_time inside the daily halt), the position is
+  flattened at the close of the last bar before `exit_time` (an EA does this with the broker's holiday
+  calendar) instead of being carried to the next session's open.
+- max_trades=2 (stop orders): the opposite stop order stays armed; if a stop-out and the opposite
+  level happen in the same M1 bar, the reversal fills in that bar (price moves through both levels).
 - Commission is charged per ounce round trip (7 USD/lot = 0.07 USD/oz).
 - Every filter uses only information available before the entry window opens (prior days, or the
-  range itself which is complete when the window opens).
+  range itself which is complete when the window opens). If range_end < 0 (the entry window opens on
+  the previous evening), daily features are taken one more day back, because the previous London day
+  is not finished yet.
 """
 import os
 from dataclasses import dataclass, field, asdict
@@ -106,6 +114,9 @@ class Params:
     commission: float = 0.07     # USD per oz round trip
     slip: float = 0.05           # USD per stop/market fill
     max_spread: float = 1.0      # skip entry if spread at trigger bar open exceeds this
+                                 # (NB: ASK is BID + an hourly median spread model, so this rarely binds)
+    limit_pen: float = 0.0       # fade limits fill only if price trades this far (USD) through the level
+                                 # (0 = fill on touch, as MT5 does; >0 = conservative queue/touch check)
 
     def to_dict(self):
         return asdict(self)
@@ -115,8 +126,9 @@ class Params:
 def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
               d_rs, d_re, d_ee, d_ex, rh, rl, atr, allow_l, allow_s,
               entry_mode, confirm_tf, buf, sl_dist, tp_r, be_r, trail_r, max_trades,
-              commission, slip, max_spread, sl_ref_opp):
+              commission, slip, max_spread, sl_ref_opp, ex_close, limit_pen):
     nd = len(d_rs)
+    # each side can be traded at most once per day (armed_l / armed_s), so <= 2 trades per day
     out = np.full((nd * 2, 9), np.nan)
     k = 0
     for d in range(nd):
@@ -138,7 +150,11 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
         be_done = False
         pend = 0          # bar-close confirmation: pending direction to open at next bar open
         ent_i = -1
-        for i in range(d_re[d], d_ex[d]):
+        i = d_re[d]
+        redo = False      # re-scan the current bar for the opposite stop order after a stop-out
+        while i < d_ex[d]:
+            again = redo
+            redo = False
             if pos == 0:
                 if trades >= max_trades or i >= d_ee[d]:
                     if pend == 0:
@@ -165,8 +181,8 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
                         break
                 elif entry_mode == 2:
                     # fade: sell limit at the upper level (BID touch), buy limit at the lower level (ASK touch)
-                    hit_up = armed_s and bh[i] >= lvl_l
-                    hit_dn = armed_l and al[i] <= lvl_s
+                    hit_up = armed_s and bh[i] >= lvl_l + limit_pen
+                    hit_dn = armed_l and al[i] <= lvl_s - limit_pen
                     if hit_up and hit_dn:
                         break
                     if hit_up:
@@ -179,13 +195,15 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
                         pos = 0
                         break
                 else:
-                    if (lmin[i] + 1) % confirm_tf == 0 and i + 1 < d_ex[d]:
+                    if (lmin[i] + 1) % confirm_tf == 0 and i + 1 < d_ex[d] and i + 1 < d_ee[d]:
                         if armed_l and bc[i] > lvl_l:
                             pend = 1
                         elif armed_s and bc[i] < lvl_s:
                             pend = -1
+                    i += 1
                     continue
                 if pos == 0:
+                    i += 1
                     continue
                 # position opened on bar i
                 trades += 1
@@ -214,8 +232,12 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
                     out[k, 4] = entry; out[k, 5] = px; out[k, 6] = pnl; out[k, 7] = risk; out[k, 8] = 1
                     k += 1
                     pos = 0
-                    if max_trades < 2:
+                    if max_trades < 2 or trades >= max_trades:
                         break
+                    if not again and entry_mode != 2:
+                        redo = True
+                        continue
+                i += 1
                 continue
             # manage open position on bar i
             if pos == 1:
@@ -253,6 +275,13 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
                 pos = 0
                 if max_trades < 2 or trades >= max_trades:
                     break
+                # stop-out: price is moving toward the opposite level, so that stop order can fill in
+                # this bar. Bar-close mode may also signal at this bar's close. Not after a TP (the
+                # bar's low/high may precede the TP) and not for limit orders (fade).
+                if not again and ((entry_mode == 0 and reason != 2) or entry_mode == 1):
+                    redo = True
+                    continue
+                i += 1
                 continue
             # stop adjustments use the bar's close-side extreme (applied from next bar)
             gain = pos * (best - entry) / risk
@@ -267,11 +296,17 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
                     sl = max(sl, best - trail_r * risk)
                 else:
                     sl = min(sl, best + trail_r * risk)
+            i += 1
         if pos != 0:
-            i = d_ex[d]
-            if i >= len(bo):
-                i = len(bo) - 1
-            px = (bo[i] - slip) if pos == 1 else (ao[i] + slip)
+            if ex_close[d]:
+                # market closed at exit_time: flatten at the close of the session's last bar
+                i = d_ex[d] - 1
+                px = (bc[i] - slip) if pos == 1 else (ac[i] + slip)
+            else:
+                i = d_ex[d]
+                if i >= len(bo):
+                    i = len(bo) - 1
+                px = (bo[i] - slip) if pos == 1 else (ao[i] + slip)
             pnl = pos * (px - entry) - commission
             out[k, 0] = d; out[k, 1] = pos; out[k, 2] = ent_i; out[k, 3] = i
             out[k, 4] = entry; out[k, 5] = px; out[k, 6] = pnl; out[k, 7] = risk; out[k, 8] = 4
@@ -279,13 +314,22 @@ def _simulate(bo, bh, bl, bc, ao, ah, al, ac, lmin,
     return out[:k]
 
 
-_WIN_CACHE = {}
+_WIN_CACHE = {}          # kept for backward compatibility; the live cache is stored inside each D
+EXIT_GAP_TOL = 30        # minutes: if the first bar at/after exit_time is later than this, the
+                         # market was closed at exit_time -> flatten at the previous bar's close
 
 
 def _windows(D, rs, re_, ee, ex):
+    """Bar-index windows per London day. Returns (i_rs, i_re, i_ee, i_ex, rh, rl, valid).
+    Range = bars with London time in [rs, re_) (BID high/low); entries from the bar at i_re."""
+    return _windows_full(D, rs, re_, ee, ex)[:7]
+
+
+def _windows_full(D, rs, re_, ee, ex):
+    cache = D.setdefault("_win_cache", {})   # per dataset, so two datasets never share windows
     key = (rs, re_, ee, ex)
-    if key in _WIN_CACHE:
-        return _WIN_CACHE[key]
+    if key in cache:
+        return cache[key]
     days = D["days"].index
     base = (days.values.astype("datetime64[m]").astype(np.int64))
     lmin = D["lmin"]
@@ -297,6 +341,7 @@ def _windows(D, rs, re_, ee, ex):
     i_re = np.searchsorted(lmin, t_re)
     i_ee = np.searchsorted(lmin, t_ee)
     i_ex = np.searchsorted(lmin, t_ex)
+    ex_close = (i_ex >= len(lmin)) | (lmin[np.minimum(i_ex, len(lmin) - 1)] - t_ex > EXIT_GAP_TOL)
     n = len(days)
     rh = np.full(n, np.nan)
     rl = np.full(n, np.nan)
@@ -311,18 +356,30 @@ def _windows(D, rs, re_, ee, ex):
                 rh[j] = bh[a:b].max()
                 rl[j] = bl[a:b].min()
                 valid[j] = True
-    res = (i_rs, i_re, i_ee, i_ex, rh, rl, valid)
-    _WIN_CACHE[key] = res
+    res = (i_rs, i_re, i_ee, i_ex, rh, rl, valid, ex_close)
+    cache[key] = res
     return res
 
 
 def run(p: Params, start=None, end=None, D=None):
     """Backtest. Returns trades DataFrame (one row per trade)."""
     D = D or load()
+    if p.entry_mode == 2 and p.sl_ref == 2:
+        raise ValueError("entry_mode=2 (fade) needs sl_ref 0 or 1: the 'opposite edge' is the fade's "
+                         "entry level, which gives a zero-distance stop")
     days = D["days"]
-    i_rs, i_re, i_ee, i_ex, rh, rl, valid = _windows(D, p.range_start, p.range_end, p.entry_end, p.exit_time)
+    i_rs, i_re, i_ee, i_ex, rh, rl, valid, ex_close = _windows_full(D, p.range_start, p.range_end,
+                                                                      p.entry_end, p.exit_time)
     width = rh - rl
-    atr = days["atr14_prev"].values
+    # daily features are "as of the end of the previous London day". If the entry window opens
+    # before midnight (range_end < 0) that day is still running, so go one more day back.
+    lag = 1 if p.range_end < 0 else 0
+
+    def feat(col):
+        v = days[col].values.astype(float)
+        return np.r_[np.full(lag, np.nan), v[:len(v) - lag]] if lag else v
+
+    atr = feat("atr14_prev")
     mask = valid & np.isfinite(atr) & (width > 0)
     wa = width / atr
     mask &= (wa >= p.min_w_atr) & (wa <= p.max_w_atr)
@@ -342,7 +399,11 @@ def run(p: Params, start=None, end=None, D=None):
     allow_l = mask.copy()
     allow_s = mask.copy()
     if p.trend > 0:
-        up = days["close_prev"].values > days[f"sma{p.trend}_prev"].values
+        cp, sma = feat("close_prev"), feat(f"sma{p.trend}_prev")
+        ok = np.isfinite(cp) & np.isfinite(sma)       # no trend defined yet -> no trade
+        allow_l &= ok
+        allow_s &= ok
+        up = cp > sma
         if p.trend_mode == 0:
             allow_l &= up
             allow_s &= ~up
@@ -362,7 +423,7 @@ def run(p: Params, start=None, end=None, D=None):
                     i_ex.astype(np.int64), np.nan_to_num(rh), np.nan_to_num(rl), np.nan_to_num(atr),
                     allow_l, allow_s, p.entry_mode, p.confirm_tf, np.nan_to_num(buf), sl_dist,
                     p.tp_r, p.be_r, p.trail_r, p.max_trades, p.commission, p.slip, p.max_spread,
-                    p.sl_ref == 2)
+                    p.sl_ref == 2, ex_close.astype(np.bool_), float(p.limit_pen))
     cols = ["day", "dir", "i_entry", "i_exit", "entry", "exit", "pnl", "risk", "reason"]
     t = pd.DataFrame(out, columns=cols)
     if len(t) == 0:
@@ -386,7 +447,7 @@ def stats(t, label=""):
     R = t["R"].values
     daily = t.groupby("date")["R"].sum()
     eq = np.cumsum(R)
-    dd = (np.maximum.accumulate(eq) - eq).max()
+    dd = (np.maximum.accumulate(np.r_[0.0, eq])[1:] - eq).max()     # peak includes the 0 start
     years = max((t["date"].max() - t["date"].min()).days / 365.25, 0.5)
     wins, losses = R[R > 0].sum(), -R[R < 0].sum()
     sd = R.std(ddof=1) if len(R) > 1 else np.nan
@@ -399,7 +460,9 @@ def stats(t, label=""):
         total_R=round(R.sum(), 1),
         PF=round(wins / losses, 3) if losses > 0 else np.inf,
         t_stat=round(R.mean() / sd * np.sqrt(len(R)), 2) if sd and sd > 0 else np.nan,
-        sharpe_ann=round(daily.mean() / daily.std(ddof=1) * np.sqrt(252), 2) if len(daily) > 2 else np.nan,
+        # per-trading-day R, annualised with the number of days that actually had trades per year
+        sharpe_ann=round(daily.mean() / daily.std(ddof=1) * np.sqrt(len(daily) / years), 2)
+        if len(daily) > 2 else np.nan,
         maxDD_R=round(dd, 1),
         avg_win_R=round(R[R > 0].mean(), 3) if (R > 0).any() else 0,
         avg_loss_R=round(R[R < 0].mean(), 3) if (R < 0).any() else 0,

@@ -1,0 +1,16 @@
+F1 IS drop top  0 trades: avg +0.0374 t 1.00
+F1 IS drop top  5 trades: avg +0.0093 t 0.27
+F1 IS drop top 10 trades: avg -0.0108 t -0.32
+F1 IS drop top 20 trades: avg -0.0462 t -1.43
+F1 IS max single-trade R 13.76, 99th pct 6.15
+F1 pooled IS+VAL all: n 2428 avg +0.0358 t 1.06
+F1 pooled IS+VAL long: n 1303 avg +0.0021 t 0.05
+F1 pooled IS+VAL short: n 1125 avg +0.0748 t 1.44
+F2 IS drop top  0 trades: avg +0.0742 t 1.48
+F2 IS drop top  5 trades: avg +0.0326 t 0.70
+F2 IS drop top 10 trades: avg +0.0020 t 0.04
+F2 IS drop top 20 trades: avg -0.0509 t -1.22
+F2 IS max single-trade R 14.00, 99th pct 6.59
+F2 pooled IS+VAL all: n 1501 avg +0.0707 t 1.58
+F2 pooled IS+VAL long: n 872 avg +0.0227 t 0.42
+F2 pooled IS+VAL short: n 629 avg +0.1372 t 1.80
