@@ -25,7 +25,7 @@
 //| a restart and are retried until they succeed.                    |
 //+------------------------------------------------------------------+
 #property copyright "gold-oi-dashboard"
-#property version   "1.12"
+#property version   "1.13"
 #property description "Range Breakout for XAUUSD: daily range before a session open, DST-aware check time, ATR range filter, pending or close-confirmed entries, ATR-scaled distances, risk-based lots."
 
 #include <Trade/Trade.mqh>
@@ -715,7 +715,7 @@ datetime CloseTimeFor(const datetime localDay)
          if(d.day_of_week == 6)
             back = 1;
          else
-            if(d.day_of_week == 0)
+            if(d.day_of_week == 0 && tod < 18 * 3600)   // Sunday before the 18:00 NY reopen
                back = 2;
       if(back >= 0)
         {
@@ -758,7 +758,9 @@ datetime NFPReleaseDate(const int year, const int month)
    datetime release  = saturday + 20 * 86400;
    MqlDateTime r;
    TimeToStruct(release, r);
-   if(r.mon == 7 && r.day == 4)
+   // Independence Day (observed): a release on 4 July, or on Friday 3 July when the 4th is a Saturday,
+   // moves to the day before
+   if(r.mon == 7 && (r.day == 4 || r.day == 3))
       release -= 86400;
    if(month == 12 && r.day <= 3)
       release += 7 * 86400;
@@ -870,6 +872,13 @@ bool DayAllowed(const datetime localDay, const datetime checkServer, string &why
    if(InpSkipUSHolidays && IsUSHolidayOrEarlyClose(ServerToNY(checkServer)))
      {
       why = "US holiday / early close";
+      return false;
+     }
+   datetime closeServer = CloseTimeFor(localDay);
+   if(InpSkipUSHolidays && closeServer > 0 && DayStart(ServerToNY(closeServer)) != DayStart(ServerToNY(checkServer))
+      && IsUSHolidayOrEarlyClose(ServerToNY(closeServer)))
+     {
+      why = "time exit falls on a US holiday / early close";
       return false;
      }
    return true;
@@ -1491,6 +1500,12 @@ void ServiceCloseEntries()
       g_s.sell.signal = false;
       return;
      }
+   // a signal postponed by the spread filter lapses once price is back inside the level
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   if(g_s.buy.signal && bid < g_s.buy.entry)
+      g_s.buy.signal = false;
+   if(g_s.sell.signal && bid > g_s.sell.entry)
+      g_s.sell.signal = false;
    if(g_s.buy.signal && !g_s.buy.done)
      {
       int res = MarketEntry(true, "candle closed above range");
@@ -1565,6 +1580,24 @@ void EndSetup(const string why)
    Log("Setup ended: " + why);
   }
 
+// median spread of the last 30 M1 candles (price units): the expected spread when the stop
+// triggers. A single-tick spike at arming would otherwise shift the buy entry for the whole day.
+double TypicalSpread()
+  {
+   double now = MathMax(0.0, SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID));
+   MqlRates r[];
+   int n = CopyRates(_Symbol, PERIOD_M1, 1, 30, r);
+   if(n < 5)
+      return now;
+   double sp[];
+   ArrayResize(sp, n);
+   for(int i = 0; i < n; i++)
+      sp[i] = r[i].spread * _Point;
+   ArraySort(sp);
+   double median = sp[n / 2];
+   return (median > 0) ? median : now;
+  }
+
 // arm today's setup (entries, sides, box). resumed = rebuilt after a restart.
 void ArmSetup(const datetime localDay, const double top, const double bottom, const datetime firstBar,
               const datetime lastBar, const double atr, const bool resumed)
@@ -1579,7 +1612,7 @@ void ArmSetup(const datetime localDay, const double top, const double bottom, co
    g_s.atr          = atr;
    g_s.spread       = 0.0;
    if(InpSpreadAdjust)
-      g_s.spread = MathMax(0.0, SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID));
+      g_s.spread = TypicalSpread();
    g_s.buy.enabled  = InpAllowBuy;
    g_s.sell.enabled = InpAllowSell;
    g_s.buy.done     = !InpAllowBuy;
@@ -1945,7 +1978,7 @@ void UpdatePanel(const datetime now)
    g_lastPanel = now;
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   string s = "Gold Range Breakout v1.12  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
+   string s = "Gold Range Breakout v1.13  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
    s += StringFormat("%s time %s  |  server %s\n", TZName(), TimeToString(ServerToLocal(now), TIME_MINUTES),
                      TimeToString(now, TIME_MINUTES));
    s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f%s\n", InpCheckHour, InpCheckMinute, TZName(),
