@@ -34,6 +34,9 @@
                                 min_w_atr 0.30, max_w_atr 99, atr_regime_n 20, atr_regime_max 1.0,
                                 all weekdays, skip_nfp false, max_spread 1.0.
   FALLBACK re5_w035_nor_W1.00 : identical except min_w_atr 0.35 and atr_regime_n 0 (regime filter off).
+  DEFAULT PRESET = FALLBACK. The pre-declared rule picked PRIMARY, but on evidence available BEFORE the
+  holdout the FALLBACK is more robust (IS t 2.63 vs 1.94, family p 0.055 vs 0.16, both VAL years
+  positive, and no ATR-regime threshold, which is knife-edge and feed-sensitive). Neither is changed.
   Engine knobs that are fixed in this EA at the frozen values: entry_mode 0 (stop orders),
   max_trades 1, comp_n 0, trend 0.
 
@@ -47,9 +50,16 @@
     THE EDGE IS NOT STATISTICALLY ESTABLISHED. Expect anything from about -0.05R to +0.10R per trade.
   - The edge is about the size of the costs (~0.09R round trip). It needs an ECN-type account
     (round trip <= ~0.5 USD/oz). At slip 0.10 + spread +0.10 IS falls to +0.085R and VAL to -0.024R.
-  - The 2024+ holdout was sealed during design and is evaluated separately (one shot); nothing here
-    was tuned on it. Results in the MT5 tester depend on the broker's history and clock; check the
+  - HOLDOUT 2024-01..2026-09 (sealed during design, run once, nothing tuned on it; final/REPORT_holdout.md):
+      PRIMARY  n 210, avg +0.053R, t 0.67, PF 1.12 (2024 +0.16, 2025 -0.08, 2026 YTD +0.14)
+      FALLBACK n 324, avg +0.073R, t 1.26, PF 1.19 (2024 +0.07, 2025 +0.02, 2026 YTD +0.16)
+      naive baseline (range 00-07, no filters) +0.050R. Verdict: NOT CONFIRMED - the filters' extra
+      edge did not replicate; the small positive result owes much to costs being only ~0.02-0.05R
+      at 2025-26 gold prices (ranges 25-55 USD) versus ~0.08R in 2014-2021.
+    Results in the MT5 tester depend on the broker's history and clock; check the
     clock setting first (the EA logs server time, UTC and London time at init).
+  - Treat live use as an experiment: demo first, risk <= 0.5%/trade, stop at a 25R drawdown
+    (see research/range_breakout/STRATEGY_TH.md for the full guardrails).
   - Parity: ea/parity_check.py ports this EA's clock, holiday, range, ATR14 and regime logic to Python and
     compares it with engine.py on 2014-03..2023 (no holdout data loaded): London-day ATR mode arms exactly
     the engine's days (PRIMARY 712/712, FALLBACK 885/885, identical ranges and ATR). Broker-D1 ATR agrees
@@ -96,7 +106,7 @@ enum ENUM_ARB_WIDE_SPREAD
 
 //--- inputs -----------------------------------------------------------
 input group "=== Strategy preset ==="
-input ENUM_ARB_PRESET InpPreset        = ARB_PRESET_PRIMARY; // Preset (PRIMARY / FALLBACK are frozen)
+input ENUM_ARB_PRESET InpPreset        = ARB_PRESET_FALLBACK; // Preset (PRIMARY / FALLBACK are frozen; FALLBACK recommended)
 
 input group "=== Engine knobs (used ONLY when Preset = CUSTOM) ==="
 input double InpRangeStart    = 0.0;    // range_start, London hours (may be negative)
@@ -192,6 +202,7 @@ struct SDay
    datetime          next_setup_try, next_place_try, next_modify_try, entry_sent_at;
    bool              paused;
    bool              virt_logged_l, virt_logged_s;
+   datetime          seen_l, seen_s;  // server time our BUY / SELL STOP was last seen live (0 = deleted by us)
    // position
    ulong             pos_ticket;
    int               dir;
@@ -206,7 +217,7 @@ struct SDay
       buf = 0; lvl_l = 0; lvl_s = 0; risk_plan = 0; volume = 0; val_per_price_lot = 0;
       armed_l = false; armed_s = false;
       next_setup_try = 0; next_place_try = 0; next_modify_try = 0; entry_sent_at = 0;
-      paused = false; virt_logged_l = false; virt_logged_s = false;
+      paused = false; virt_logged_l = false; virt_logged_s = false; seen_l = 0; seen_s = 0;
       pos_ticket = 0; dir = 0; fill = 0; risk = 0; best = 0; entry_bar = 0; best_upto = 0;
       exit_reason = ""; summary_done = false;
      }
@@ -612,6 +623,25 @@ bool RcRetry(const uint rc)
   }
 string RcText() { return StringFormat("%u %s", g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()); }
 
+// TRADE_RETCODE_INVALID_FILL: switch the CTrade filling policy to the next one the symbol allows
+// (SetTypeFillingBySymbol picks one for market orders; some servers want another one for stop orders)
+bool NextFilling()
+  {
+   static int tried = 0;
+   int fm = (int)SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+   ENUM_ORDER_TYPE_FILLING cand[3] = {ORDER_FILLING_FOK, ORDER_FILLING_IOC, ORDER_FILLING_RETURN};
+   for(int k = tried; k < 3; k++)
+     {
+      tried = k + 1;
+      bool ok = (k == 0 && (fm & SYMBOL_FILLING_FOK) != 0) || (k == 1 && (fm & SYMBOL_FILLING_IOC) != 0) || k == 2;
+      if(!ok || cand[k] == g_trade.RequestTypeFilling()) continue;
+      g_trade.SetTypeFilling(cand[k]);
+      Log(StringFormat("unsupported filling mode: switching to %s", EnumToString(cand[k])));
+      return true;
+     }
+   return false;
+  }
+
 bool OpMarket(const int dir, const double vol, double sl, const string cmt, uint &rc)
   {
    rc = 0;
@@ -625,6 +655,7 @@ bool OpMarket(const int dir, const double vol, double sl, const string cmt, uint
       if(sent && RcOk(rc)) return true;
       Log(StringFormat("market %s %.2f attempt %d failed: %s", dir > 0 ? "BUY" : "SELL", vol, a + 1, RcText()));
       if(rc == TRADE_RETCODE_INVALID_STOPS && sl != 0.0) { sl = 0.0; continue; } // SL is set after the fill
+      if(rc == TRADE_RETCODE_INVALID_FILL && NextFilling()) continue;
       if(!RcRetry(rc)) break;
      }
    return false;
@@ -643,7 +674,13 @@ bool OpPending(const int dir, const double vol, const double price, double sl, E
       if(sent && RcOk(rc)) return true;
       Log(StringFormat("%s at %s attempt %d failed: %s", dir > 0 ? "BUY STOP" : "SELL STOP", Px(price), a + 1, RcText()));
       if(rc == TRADE_RETCODE_INVALID_STOPS && sl != 0.0) { sl = 0.0; continue; }
-      if(rc == TRADE_RETCODE_INVALID_EXPIRATION && tt != ORDER_TIME_GTC) { tt = ORDER_TIME_GTC; expiry = 0; continue; }
+      if(rc == TRADE_RETCODE_INVALID_FILL && NextFilling()) continue;
+      if(rc == TRADE_RETCODE_INVALID_EXPIRATION)
+        {
+         // fall back SPECIFIED -> GTC -> DAY (DAY ends at the broker's day end, after entry_end)
+         if(tt == ORDER_TIME_SPECIFIED && (g_exp_mode & SYMBOL_EXPIRATION_GTC) != 0) { tt = ORDER_TIME_GTC; expiry = 0; continue; }
+         if(tt != ORDER_TIME_DAY && (g_exp_mode & SYMBOL_EXPIRATION_DAY) != 0)      { tt = ORDER_TIME_DAY; expiry = 0; continue; }
+        }
       if(!RcRetry(rc)) break;
      }
    return false;
@@ -760,7 +797,11 @@ bool DeletePendings(const string why)
            }
         }
       if(OpDelete(t))
+        {
+         if(ot == ORDER_TYPE_BUY_STOP)  g_d.seen_l = 0;
+         if(ot == ORDER_TYPE_SELL_STOP) g_d.seen_s = 0;
          LogV(StringFormat("deleted pending #%I64u at %s (%s)", t, Px(op), why));
+        }
       else
          all = false;
      }
@@ -1065,6 +1106,15 @@ void Setup(const datetime srv, const datetime key, const MqlTick &tk)
    ENUM_SYMBOL_TRADE_MODE tm = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE);
    if(tm != SYMBOL_TRADE_MODE_FULL) { Skip("symbol trade mode is not FULL (long and short needed)"); return; }
    if(srv < g_d.next_setup_try) return;
+   // Live, OnTimer runs on TimeTradeServer(): wait for the first real tick at/after range_end, so the
+   // last range bar is complete (late ticks stamped before range_end) and the heavy ComputeDay is not
+   // repeated every second while no bar exists yet. Engine: no bar within 30 min -> invalid day.
+   datetime re_s = LondonToServer((datetime)((long)key + g_re_sec));
+   if((long)tk.time < (long)re_s)
+     {
+      if((long)srv - (long)re_s >= 1800) Skip("no tick within 30 min after range_end (session gap)");
+      return;
+     }
    string why;
    int rc = ComputeDay(key, why);
    if(rc < 0)
@@ -1076,7 +1126,6 @@ void Setup(const datetime srv, const datetime key, const MqlTick &tk)
      }
    if(rc == 0) { Skip(why); return; }
    // engine: the first bar at/after range_end must start < 30 min after range_end (same session)
-   datetime re_s = LondonToServer((datetime)((long)key + g_re_sec));
    MqlRates b[];
    int nb = CopyRates(_Symbol, PERIOD_M1, re_s, srv, b);
    if(nb < 0) { g_d.next_setup_try = (datetime)((long)srv + 10); return; }
@@ -1145,6 +1194,8 @@ void TryPlace(const int dir, const datetime srv, const MqlTick &tk)
    sl = NormPrice(sl);
    if(MathAbs(price - sl) <= StopsDist()) sl = 0.0;          // provisional SL only; the real one is set after the fill
    ENUM_ORDER_TYPE_TIME tt = ORDER_TIME_GTC;
+   if((g_exp_mode & SYMBOL_EXPIRATION_GTC) == 0 && (g_exp_mode & SYMBOL_EXPIRATION_DAY) != 0)
+      tt = ORDER_TIME_DAY;
    datetime expiry = 0;
    if((g_exp_mode & SYMBOL_EXPIRATION_SPECIFIED) != 0)
      {
@@ -1182,6 +1233,8 @@ void ManageArmed(const datetime srv, const MqlTick &tk)
    ulong btk, stk;
    double bpx, spx;
    FindPendings(btk, stk, bpx, spx);
+   if(btk != 0) g_d.seen_l = srv;
+   if(stk != 0) g_d.seen_s = srv;
    // a restored pending whose price does not match today's level is replaced
    if(btk != 0 && MathAbs(bpx - g_d.lvl_l) > 0.5 * g_tick) { DeletePendings("level mismatch"); return; }
    if(stk != 0 && MathAbs(spx - g_d.lvl_s) > 0.5 * g_tick) { DeletePendings("level mismatch"); return; }
@@ -1197,6 +1250,15 @@ void ManageArmed(const datetime srv, const MqlTick &tk)
      }
    if(g_d.paused) { LogV("spread back to normal: re-arming"); g_d.paused = false; g_d.next_place_try = 0; }
    if(cross_l && cross_s) { Skip("both levels crossed at once"); return; }
+   // Live race: a broker-side stop that has just triggered leaves the order list before the position
+   // (or its deal) shows up. Do not send a second (market) entry for it; wait for the fill to sync.
+   if((cross_l && btk == 0 && g_d.seen_l > 0 && (long)srv - (long)g_d.seen_l < 10) ||
+      (cross_s && stk == 0 && g_d.seen_s > 0 && (long)srv - (long)g_d.seen_s < 10))
+     {
+      g_deal_flag = true;
+      LogT("trigwait", "stop order left the order list at the level - waiting for the fill to sync (no second entry)", 30);
+      return;
+     }
    if(cross_l && btk == 0) { if(stk != 0 && !DeletePendings("OCO before market entry")) return; MarketEntry(1, tk); return; }
    if(cross_s && stk == 0) { if(btk != 0 && !DeletePendings("OCO before market entry")) return; MarketEntry(-1, tk); return; }
    if(cross_l || cross_s) return;                 // a live stop order is being triggered by the server
@@ -1230,9 +1292,9 @@ void OnFilled(const ulong ticket, const datetime srv)
       if(P.sl_ref == 2)
          risk = MathMax(dir > 0 ? fill - (g_d.rl - g_d.buf) : (g_d.rh + g_d.buf) - fill, 0.1);
       else
-         risk = g_d.risk_plan;
+         risk = g_d.risk_plan;                   // 0 if ATR14 was undefined (sl_ref 1) or not computed
      }
-   else if(cur_sl > 0.0)
+   if(!(risk > 0.0) && cur_sl > 0.0)
       risk = MathAbs(fill - cur_sl);             // fallback: keep the stop the position already has
    if(g_d.val_per_price_lot <= 0) g_d.val_per_price_lot = ValuePerPriceLot();
    g_d.pos_ticket = ticket;
@@ -1301,12 +1363,21 @@ double TargetSL()
 
 void ManagePosition(const datetime srv, const MqlTick &tk)
   {
+   // OCO / one trade per day: the opposite stop must not survive a failed delete in OnFilled
+   if(srv >= g_d.next_place_try && HasPendings())
+     {
+      g_d.next_place_try = (datetime)((long)srv + 5);
+      DeletePendings("OCO: position open (retry)");
+     }
    if(!PositionSelectByTicket(g_d.pos_ticket)) return;
    if(g_d.risk <= 0.0)
      {
       LogT("norisk", "position without a known risk distance (history not ready) - retrying", 60);
+      if(srv < g_d.next_setup_try) return;
+      g_d.next_setup_try = (datetime)((long)srv + 30);
       string why;
-      if(ComputeDay(g_d.key, why) == 1 || g_d.computed) OnFilled(g_d.pos_ticket, srv);
+      ComputeDay(g_d.key, why);
+      OnFilled(g_d.pos_ticket, srv);
       return;
      }
    double cur_sl = PositionGetDouble(POSITION_SL);
@@ -1681,6 +1752,8 @@ int OnInit()
    string pc = SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT);
    if(pc != "USD")
       Log("WARNING: profit currency is " + pc + ", not USD. Engine thresholds (0.30 SL floor, 0.05 BE offset, max spread) are USD/oz.");
+   if((ENUM_SYMBOL_CHART_MODE)SymbolInfoInteger(_Symbol, SYMBOL_CHART_MODE) != SYMBOL_CHART_MODE_BID)
+      Log("WARNING: this symbol's bars are built from LAST prices, not BID. The engine range / ATR are BID-based; results will differ.");
    g_vstep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
    g_vmin = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    g_vmax = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
