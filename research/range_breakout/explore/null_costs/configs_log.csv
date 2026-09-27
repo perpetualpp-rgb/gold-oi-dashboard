@@ -1,0 +1,92 @@
+label,val_checked,note,params,extra
+default,1,null test IS+VAL,{},{}
+default@default_costs,1,"cost base, VAL checked",{},{}
+default@frictionless,1,"spread_k=0, VAL checked","{""commission"": 0.0, ""slip"": 0.0}",{}
+default@stress,0,slip0.10 spread+0.10 IS only,"{""slip"": 0.1}",{}
+tight_sl0.5_tp2@default_costs,1,"cost base, VAL checked","{""sl_k"": 0.5, ""tp_r"": 2.0}",{}
+tight_sl0.5_tp2@frictionless,1,"spread_k=0, VAL checked","{""sl_k"": 0.5, ""tp_r"": 2.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+tight_sl0.5_tp2@stress,0,slip0.10 spread+0.10 IS only,"{""sl_k"": 0.5, ""tp_r"": 2.0, ""slip"": 0.1}",{}
+fade_tp1@default_costs,1,"cost base, VAL checked","{""entry_mode"": 2, ""tp_r"": 1.0}",{}
+fade_tp1@frictionless,1,"spread_k=0, VAL checked","{""entry_mode"": 2, ""tp_r"": 1.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+fade_tp1@stress,0,slip0.10 spread+0.10 IS only,"{""entry_mode"": 2, ""tp_r"": 1.0, ""slip"": 0.1}",{}
+wide_sl2@default_costs,1,"cost base, VAL checked","{""sl_k"": 2.0}",{}
+wide_sl2@frictionless,1,"spread_k=0, VAL checked","{""sl_k"": 2.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+wide_sl2@stress,0,slip0.10 spread+0.10 IS only,"{""sl_k"": 2.0, ""slip"": 0.1}",{}
+fragility sl0 k=0.25 tp=0.0,0,IS only,"{""sl_k"": 0.25}",{}
+fragility sl0 k=0.25 tp=0.0 frictionless,0,IS only,"{""sl_k"": 0.25, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=0.35 tp=0.0,0,IS only,"{""sl_k"": 0.35}",{}
+fragility sl0 k=0.35 tp=0.0 frictionless,0,IS only,"{""sl_k"": 0.35, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=0.5 tp=0.0,0,IS only,"{""sl_k"": 0.5}",{}
+fragility sl0 k=0.5 tp=0.0 frictionless,0,IS only,"{""sl_k"": 0.5, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=0.75 tp=0.0,0,IS only,"{""sl_k"": 0.75}",{}
+fragility sl0 k=0.75 tp=0.0 frictionless,0,IS only,"{""sl_k"": 0.75, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=1.5 tp=0.0,0,IS only,"{""sl_k"": 1.5}",{}
+fragility sl0 k=1.5 tp=0.0 frictionless,0,IS only,"{""sl_k"": 1.5, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=3.0 tp=0.0,0,IS only,"{""sl_k"": 3.0}",{}
+fragility sl0 k=3.0 tp=0.0 frictionless,0,IS only,"{""sl_k"": 3.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=0.25 tp=2.0,0,IS only,"{""sl_k"": 0.25, ""tp_r"": 2.0}",{}
+fragility sl0 k=0.25 tp=2.0 frictionless,0,IS only,"{""sl_k"": 0.25, ""tp_r"": 2.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=1.0 tp=2.0,0,IS only,"{""tp_r"": 2.0}",{}
+fragility sl0 k=1.0 tp=2.0 frictionless,0,IS only,"{""tp_r"": 2.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl0 k=2.0 tp=2.0,0,IS only,"{""sl_k"": 2.0, ""tp_r"": 2.0}",{}
+fragility sl0 k=2.0 tp=2.0 frictionless,0,IS only,"{""sl_k"": 2.0, ""tp_r"": 2.0, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl1 k=0.1 tp=0.0,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.1}",{}
+fragility sl1 k=0.1 tp=0.0 frictionless,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.1, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl1 k=0.2 tp=0.0,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.2}",{}
+fragility sl1 k=0.2 tp=0.0 frictionless,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.2, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl1 k=0.35 tp=0.0,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.35}",{}
+fragility sl1 k=0.35 tp=0.0 frictionless,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.35, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl1 k=0.5 tp=0.0,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.5}",{}
+fragility sl1 k=0.5 tp=0.0 frictionless,0,IS only,"{""sl_ref"": 1, ""sl_k"": 0.5, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility sl1 k=1.0 tp=0.0,0,IS only,"{""sl_ref"": 1}",{}
+fragility sl1 k=1.0 tp=0.0 frictionless,0,IS only,"{""sl_ref"": 1, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility w/atr 0.0-0.4,0,IS only,"{""max_w_atr"": 0.4}",{}
+fragility w/atr 0.0-0.4 frictionless,0,IS only,"{""max_w_atr"": 0.4, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility w/atr 0.0-0.6,0,IS only,"{""max_w_atr"": 0.6}",{}
+fragility w/atr 0.0-0.6 frictionless,0,IS only,"{""max_w_atr"": 0.6, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility w/atr 0.0-0.8,0,IS only,"{""max_w_atr"": 0.8}",{}
+fragility w/atr 0.0-0.8 frictionless,0,IS only,"{""max_w_atr"": 0.8, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility w/atr 0.4-99,0,IS only,"{""min_w_atr"": 0.4}",{}
+fragility w/atr 0.4-99 frictionless,0,IS only,"{""min_w_atr"": 0.4, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility w/atr 0.6-99,0,IS only,"{""min_w_atr"": 0.6}",{}
+fragility w/atr 0.6-99 frictionless,0,IS only,"{""min_w_atr"": 0.6, ""commission"": 0.0, ""slip"": 0.0}",{}
+fragility w/atr 0.8-99,0,IS only,"{""min_w_atr"": 0.8}",{}
+fragility w/atr 0.8-99 frictionless,0,IS only,"{""min_w_atr"": 0.8, ""commission"": 0.0, ""slip"": 0.0}",{}
+others: exits F1 trail2,0,IS null + cost,"{""trail_r"": 2.0}",{}
+others: exits F2 ATR0.75 BE1 trail1.5 x21,0,IS null + cost,"{""exit_time"": 21.0, ""sl_ref"": 1, ""sl_k"": 0.75, ""be_r"": 1.0, ""trail_r"": 1.5}",{}
+others: exits F3 ATR1.5 time exit,0,IS null + cost,"{""sl_ref"": 1, ""sl_k"": 1.5}",{}
+others: entry B buf0.05,0,IS null + cost,"{""buf_k"": 0.05}",{}
+others: timing F1 asia00-05,0,IS null + cost,"{""range_end"": 5.0}",{}
+others: timing F2 asia00-0530 ee07 ex21,0,IS null + cost,"{""range_end"": 5.5, ""entry_end"": 7.0, ""exit_time"": 21.0}",{}
+others: timing F3 range02-09,0,IS null + cost,"{""range_start"": 2.0, ""range_end"": 9.0}",{}
+others: filters F4 w/atr>=0.35,0,IS null + cost,"{""min_w_atr"": 0.35}",{}
+others: filters F1 w/atr>=0.3 & a20<=1,0,"IS null + cost, post-hoc a20 mask","{""min_w_atr"": 0.3}",{}
+others: filters F2 w/atr>=0.35 & a20<=1,0,"IS null + cost, post-hoc a20 mask","{""min_w_atr"": 0.35}",{}
+family proxy w/atr>=0.0 & a20<=0.9,0,"IS only, family null demo",{},{}
+family proxy w/atr>=0.0 & a20<=1.0,0,"IS only, family null demo",{},{}
+family proxy w/atr>=0.0 & a20<=1.1,0,"IS only, family null demo",{},{}
+family proxy w/atr>=0.2,0,"IS only, family null demo","{""min_w_atr"": 0.2}",{}
+family proxy w/atr>=0.2 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.2}",{}
+family proxy w/atr>=0.2 & a20<=1.0,0,"IS only, family null demo","{""min_w_atr"": 0.2}",{}
+family proxy w/atr>=0.2 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.2}",{}
+family proxy w/atr>=0.25,0,"IS only, family null demo","{""min_w_atr"": 0.25}",{}
+family proxy w/atr>=0.25 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.25}",{}
+family proxy w/atr>=0.25 & a20<=1.0,0,"IS only, family null demo","{""min_w_atr"": 0.25}",{}
+family proxy w/atr>=0.25 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.25}",{}
+family proxy w/atr>=0.3,0,"IS only, family null demo","{""min_w_atr"": 0.3}",{}
+family proxy w/atr>=0.3 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.3}",{}
+family proxy w/atr>=0.3 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.3}",{}
+family proxy w/atr>=0.35 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.35}",{}
+family proxy w/atr>=0.35 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.35}",{}
+family proxy w/atr>=0.4,0,"IS only, family null demo","{""min_w_atr"": 0.4}",{}
+family proxy w/atr>=0.4 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.4}",{}
+family proxy w/atr>=0.4 & a20<=1.0,0,"IS only, family null demo","{""min_w_atr"": 0.4}",{}
+family proxy w/atr>=0.4 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.4}",{}
+family proxy w/atr>=0.45,0,"IS only, family null demo","{""min_w_atr"": 0.45}",{}
+family proxy w/atr>=0.45 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.45}",{}
+family proxy w/atr>=0.45 & a20<=1.0,0,"IS only, family null demo","{""min_w_atr"": 0.45}",{}
+family proxy w/atr>=0.45 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.45}",{}
+family proxy w/atr>=0.5,0,"IS only, family null demo","{""min_w_atr"": 0.5}",{}
+family proxy w/atr>=0.5 & a20<=0.9,0,"IS only, family null demo","{""min_w_atr"": 0.5}",{}
+family proxy w/atr>=0.5 & a20<=1.0,0,"IS only, family null demo","{""min_w_atr"": 0.5}",{}
+family proxy w/atr>=0.5 & a20<=1.1,0,"IS only, family null demo","{""min_w_atr"": 0.5}",{}

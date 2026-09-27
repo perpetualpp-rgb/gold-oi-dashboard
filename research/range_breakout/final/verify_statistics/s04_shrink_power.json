@@ -1,0 +1,510 @@
+{
+ "family_level": {
+  "IS": {
+   "n_cfg": 8856,
+   "mean_cfg_avgR": 0.0567,
+   "median_cfg_avgR": 0.0492,
+   "frac_pos": 0.831,
+   "family_portfolio_avgR": 0.0567,
+   "family_portfolio_t_NW": 1.67,
+   "by_year": {
+    "2014": 0.1521,
+    "2015": 0.0079,
+    "2016": 0.0598,
+    "2017": 0.0289,
+    "2018": 0.0465,
+    "2019": -0.0627,
+    "2020": 0.1118,
+    "2021": 0.1094
+   },
+   "wo2014_avgR": 0.043,
+   "wo2014_t_NW": 1.17
+  },
+  "VAL": {
+   "n_cfg": 8874,
+   "mean_cfg_avgR": 0.0382,
+   "median_cfg_avgR": 0.0412,
+   "frac_pos": 0.709,
+   "family_portfolio_avgR": 0.0382,
+   "family_portfolio_t_NW": 0.63,
+   "by_year": {
+    "2022": 0.1508,
+    "2023": -0.0745
+   }
+  }
+ },
+ "neighbours": [
+  {
+   "change": {
+    "min_w_atr": 0.0
+   },
+   "IS_n": 1075,
+   "IS_avgR": 0.1154,
+   "VAL_n": 257,
+   "VAL_avgR": 0.1001
+  },
+  {
+   "change": {
+    "min_w_atr": 0.2
+   },
+   "IS_n": 919,
+   "IS_avgR": 0.0836,
+   "VAL_n": 211,
+   "VAL_avgR": 0.0189
+  },
+  {
+   "change": {
+    "atr_regime_n": 0
+   },
+   "IS_n": 945,
+   "IS_avgR": 0.0826,
+   "VAL_n": 209,
+   "VAL_avgR": 0.0248
+  },
+  {
+   "change": {
+    "comp_max": 0.8,
+    "atr_regime_n": 0
+   },
+   "IS_n": 20,
+   "IS_avgR": 0.4813,
+   "VAL_n": 0,
+   "VAL_avgR": 0.0
+  },
+  {
+   "change": {
+    "comp_min": 1.0,
+    "atr_regime_n": 0
+   },
+   "IS_n": 776,
+   "IS_avgR": 0.0827,
+   "VAL_n": 190,
+   "VAL_avgR": 0.0231
+  },
+  {
+   "change": {
+    "exit_time": 18.0
+   },
+   "IS_n": 532,
+   "IS_avgR": 0.1338,
+   "VAL_n": 113,
+   "VAL_avgR": 0.0498
+  },
+  {
+   "change": {
+    "trend": 50
+   },
+   "IS_n": 285,
+   "IS_avgR": 0.1304,
+   "VAL_n": 66,
+   "VAL_avgR": -0.123
+  },
+  {
+   "change": {
+    "comp_max": 0.8
+   },
+   "IS_n": 19,
+   "IS_avgR": 0.4052,
+   "VAL_n": 0,
+   "VAL_avgR": 0.0
+  },
+  {
+   "change": {
+    "comp_min": 1.0
+   },
+   "IS_n": 402,
+   "IS_avgR": 0.1387,
+   "VAL_n": 99,
+   "VAL_avgR": 0.0216
+  },
+  {
+   "change": {
+    "exit_time": 21.0
+   },
+   "IS_n": 532,
+   "IS_avgR": 0.1205,
+   "VAL_n": 113,
+   "VAL_avgR": 0.0324
+  },
+  {
+   "change": {
+    "sl_k": 0.75
+   },
+   "IS_n": 532,
+   "IS_avgR": 0.1431,
+   "VAL_n": 113,
+   "VAL_avgR": 0.0034
+  },
+  {
+   "change": {
+    "sl_ref": 1
+   },
+   "IS_n": 532,
+   "IS_avgR": 0.0676,
+   "VAL_n": 113,
+   "VAL_avgR": 0.0375
+  },
+  {
+   "change": {
+    "sl_ref": 2
+   },
+   "IS_n": 532,
+   "IS_avgR": 0.1165,
+   "VAL_n": 113,
+   "VAL_avgR": 0.0167
+  },
+  {
+   "change": {
+    "tp_r": 2.0
+   },
+   "IS_n": 532,
+   "IS_avgR": 0.082,
+   "VAL_n": 113,
+   "VAL_avgR": -0.0834
+  },
+  {
+   "change": {
+    "atr_regime_n": 50
+   },
+   "IS_n": 550,
+   "IS_avgR": 0.0933,
+   "VAL_n": 126,
+   "VAL_avgR": 0.0557
+  },
+  {
+   "change": {
+    "comp_max": 0.8,
+    "atr_regime_n": 50
+   },
+   "IS_n": 14,
+   "IS_avgR": 0.7794,
+   "VAL_n": 0,
+   "VAL_avgR": 0.0
+  },
+  {
+   "change": {
+    "comp_min": 1.0,
+    "atr_regime_n": 50
+   },
+   "IS_n": 429,
+   "IS_avgR": 0.0994,
+   "VAL_n": 112,
+   "VAL_avgR": 0.0329
+  },
+  {
+   "change": {
+    "atr_regime_max": 0.9
+   },
+   "IS_n": 232,
+   "IS_avgR": 0.0754,
+   "VAL_n": 56,
+   "VAL_avgR": 0.03
+  },
+  {
+   "change": {
+    "comp_max": 0.8,
+    "atr_regime_max": 0.9
+   },
+   "IS_n": 18,
+   "IS_avgR": 0.4844,
+   "VAL_n": 0,
+   "VAL_avgR": 0.0
+  },
+  {
+   "change": {
+    "atr_regime_max": 0.9,
+    "comp_min": 1.0
+   },
+   "IS_n": 152,
+   "IS_avgR": 0.0991,
+   "VAL_n": 45,
+   "VAL_avgR": 0.1047
+  },
+  {
+   "change": {
+    "min_w_atr": 0.35
+   },
+   "IS_n": 355,
+   "IS_avgR": 0.1894,
+   "VAL_n": 81,
+   "VAL_avgR": 0.0993
+  },
+  {
+   "change": {
+    "min_w_atr": 0.4
+   },
+   "IS_n": 236,
+   "IS_avgR": 0.2088,
+   "VAL_n": 53,
+   "VAL_avgR": 0.1307
+  },
+  {
+   "change": {
+    "min_w_atr": 0.5
+   },
+   "IS_n": 106,
+   "IS_avgR": 0.1725,
+   "VAL_n": 30,
+   "VAL_avgR": -0.0064
+  },
+  {
+   "change": {
+    "range_end": 6,
+    "atr_regime_n": 0
+   },
+   "IS_n": 1030,
+   "IS_avgR": 0.0844,
+   "VAL_n": 233,
+   "VAL_avgR": 0.0748
+  },
+  {
+   "change": {
+    "range_end": 6
+   },
+   "IS_n": 577,
+   "IS_avgR": 0.1331,
+   "VAL_n": 127,
+   "VAL_avgR": 0.0823
+  },
+  {
+   "change": {
+    "comp_max": 0.8,
+    "range_end": 6
+   },
+   "IS_n": 30,
+   "IS_avgR": 0.229,
+   "VAL_n": 1,
+   "VAL_avgR": -1.0139
+  },
+  {
+   "change": {
+    "range_end": 6,
+    "comp_min": 1.0
+   },
+   "IS_n": 396,
+   "IS_avgR": 0.0785,
+   "VAL_n": 104,
+   "VAL_avgR": 0.1501
+  },
+  {
+   "change": {
+    "range_end": 6,
+    "atr_regime_n": 50
+   },
+   "IS_n": 602,
+   "IS_avgR": 0.1235,
+   "VAL_n": 139,
+   "VAL_avgR": 0.0626
+  },
+  {
+   "change": {
+    "range_end": 6,
+    "atr_regime_max": 0.9
+   },
+   "IS_n": 250,
+   "IS_avgR": 0.1483,
+   "VAL_n": 61,
+   "VAL_avgR": 0.1266
+  },
+  {
+   "change": {
+    "range_end": 7,
+    "atr_regime_n": 0
+   },
+   "IS_n": 1154,
+   "IS_avgR": 0.0556,
+   "VAL_n": 275,
+   "VAL_avgR": -0.0063
+  },
+  {
+   "change": {
+    "range_end": 7
+   },
+   "IS_n": 655,
+   "IS_avgR": 0.1128,
+   "VAL_n": 142,
+   "VAL_avgR": 0.0389
+  },
+  {
+   "change": {
+    "comp_max": 0.8,
+    "range_end": 7
+   },
+   "IS_n": 67,
+   "IS_avgR": -0.0559,
+   "VAL_n": 7,
+   "VAL_avgR": 0.5042
+  },
+  {
+   "change": {
+    "range_end": 7,
+    "comp_min": 1.0
+   },
+   "IS_n": 400,
+   "IS_avgR": 0.1005,
+   "VAL_n": 101,
+   "VAL_avgR": 0.0543
+  },
+  {
+   "change": {
+    "range_end": 7,
+    "atr_regime_n": 50
+   },
+   "IS_n": 687,
+   "IS_avgR": 0.1109,
+   "VAL_n": 156,
+   "VAL_avgR": 0.0058
+  },
+  {
+   "change": {
+    "range_end": 7,
+    "atr_regime_max": 0.9
+   },
+   "IS_n": 286,
+   "IS_avgR": 0.0864,
+   "VAL_n": 67,
+   "VAL_avgR": 0.0601
+  },
+  {
+   "change": {
+    "range_end": 7,
+    "range_start": 1
+   },
+   "IS_n": 597,
+   "IS_avgR": 0.1119,
+   "VAL_n": 131,
+   "VAL_avgR": 0.0627
+  },
+  {
+   "change": {
+    "range_end": 8,
+    "entry_end": 13
+   },
+   "IS_n": 731,
+   "IS_avgR": 0.0827,
+   "VAL_n": 171,
+   "VAL_avgR": 0.0492
+  }
+ ],
+ "shrinkage": {
+  "prior_N(0,0.03)_IS": {
+   "post_mean": 0.0234,
+   "post_sd": 0.027,
+   "P_gt0": 0.808
+  },
+  "prior_N(0,0.03)_POOLED": {
+   "post_mean": 0.0235,
+   "post_sd": 0.0264,
+   "P_gt0": 0.813
+  },
+  "prior_N(0,0.05)_IS": {
+   "post_mean": 0.0485,
+   "post_sd": 0.0388,
+   "P_gt0": 0.894
+  },
+  "prior_N(0,0.05)_POOLED": {
+   "post_mean": 0.0465,
+   "post_sd": 0.0371,
+   "P_gt0": 0.895
+  },
+  "prior_N(0,0.1)_IS": {
+   "post_mean": 0.0883,
+   "post_sd": 0.0523,
+   "P_gt0": 0.954
+  },
+  "prior_N(0,0.1)_POOLED": {
+   "post_mean": 0.0794,
+   "post_sd": 0.0485,
+   "P_gt0": 0.949
+  },
+  "EB_family_prior_IS": {
+   "mu0": 0.0567,
+   "tau": 0.0327,
+   "weight_on_data": 0.221,
+   "post_mean": 0.0711,
+   "post_sd": 0.0289,
+   "P_gt0": 0.993
+  },
+  "EB_family_prior_POOLED": {
+   "mu0": 0.0567,
+   "tau": 0.0327,
+   "weight_on_data": 0.258,
+   "post_mean": 0.0689,
+   "post_sd": 0.0282,
+   "P_gt0": 0.993
+  },
+  "EB_prior_mean0_tau_family_IS": {
+   "tau": 0.0327,
+   "post_mean": 0.0269,
+   "P_gt0": 0.824
+  },
+  "EB_prior_mean0_tau_family_POOLED": {
+   "tau": 0.0327,
+   "post_mean": 0.0268,
+   "P_gt0": 0.829
+  },
+  "IS_to_VAL_regression_pred": 0.0581,
+  "decay_ratio_IS_t_1.8_2.2_to_VAL": 0.677,
+  "decay_ratio_split_half_t_1.5_2.5": [
+   0.301,
+   0.494
+  ],
+  "EB_IS_then_VAL_update": {
+   "post_mean": 0.0266,
+   "post_sd": 0.0281,
+   "P_gt0": 0.827
+  }
+ },
+ "tau_family_split_half": 0.0327,
+ "power": {
+  "sd_R": 1.437,
+  "assumed_trades_per_year": 60.0,
+  "mu=0.12": {
+   "n_analytic": 886,
+   "years_analytic": 14.8,
+   "n_sim_empirical": 872,
+   "years_sim": 14.5
+  },
+  "mu=0.1": {
+   "n_analytic": 1276,
+   "years_analytic": 21.3,
+   "n_sim_empirical": 1251,
+   "years_sim": 20.9
+  },
+  "mu=0.06": {
+   "n_analytic": 3545,
+   "years_analytic": 59.1,
+   "n_sim_empirical": 3429,
+   "years_sim": 57.1
+  },
+  "mu=0.04": {
+   "n_analytic": 7977,
+   "years_analytic": 133.0,
+   "n_sim_empirical": 8134,
+   "years_sim": 135.6
+  },
+  "mu=0.02": {
+   "n_analytic": 31909,
+   "years_analytic": 531.8,
+   "n_sim_empirical": 33095,
+   "years_sim": 551.6
+  },
+  "distinguish_0.12_vs_0.04": {
+   "n": 1994,
+   "years": 33.2
+  },
+  "MDE_by_years": {
+   "1": 0.461,
+   "2": 0.326,
+   "3": 0.266,
+   "5": 0.206,
+   "10": 0.146
+  },
+  "SPRT_0_vs_0.06": {
+   "E_n_if_mu0": 1787,
+   "E_n_if_mu0p06": 3180,
+   "years_if_mu0": 29.8,
+   "years_if_mu0p06": 53.0
+  }
+ }
+}

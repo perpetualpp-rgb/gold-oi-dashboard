@@ -1,0 +1,43 @@
+{
+ "0.03": {
+  "n_mean": 649.5,
+  "IS_mean": 0.1166,
+  "IS_min": 0.1039,
+  "IS_max": 0.1309,
+  "VAL_mean": 0.019,
+  "ALL_mean": 0.0995,
+  "ALL_sd": 0.0058,
+  "ALL_min": 0.0895,
+  "ALL_max": 0.1109,
+  "jaccard_mean": 0.981
+ },
+ "0.06": {
+  "n_mean": 654.8,
+  "IS_mean": 0.1165,
+  "IS_min": 0.098,
+  "IS_max": 0.1475,
+  "VAL_mean": 0.007,
+  "ALL_mean": 0.0973,
+  "ALL_sd": 0.0105,
+  "ALL_min": 0.0786,
+  "ALL_max": 0.1185,
+  "jaccard_mean": 0.964
+ },
+ "0.12": {
+  "n_mean": 678.4,
+  "IS_mean": 0.0873,
+  "IS_min": 0.0646,
+  "IS_max": 0.1161,
+  "VAL_mean": -0.0059,
+  "ALL_mean": 0.0712,
+  "ALL_sd": 0.0108,
+  "ALL_min": 0.0475,
+  "ALL_max": 0.0946,
+  "jaccard_mean": 0.918
+ },
+ "engine": {
+  "IS": 0.1216,
+  "ALL": 0.1038,
+  "n": 645
+ }
+}

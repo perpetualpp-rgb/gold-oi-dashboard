@@ -1,0 +1,12 @@
+[1] clock: 736224 instants 2010-2030 every 15 min; mismatches {'US': 0, 'EU': 0, 'london': 0} (weekday instants)
+[2] early close: engine ex_close days 91, EA calendar days 77, both 76
+     engine-only: ['2014-01-01', '2014-12-25', '2015-01-01', '2015-04-03', '2016-12-26', '2017-01-02', '2017-12-25', '2018-01-01', '2018-12-25', '2019-01-01', '2019-12-25', '2020-01-01', '2022-12-26', '2023-01-02', '2023-12-25']
+     EA-calendar-only (market open at 20:00 in the data): ['2019-07-04']
+     engine flat time on those days (last bar before 20:00, London h): min 17.72 median 18.00 max 19.78  (EA default 17.50)
+[3] PRIMARY ATR=london: armed days both 712, engine-only 0, EA-only 0 (agreement 1.0000); range mismatches 0, ATR mismatches 0
+[3] FALLBACK ATR=london: armed days both 885, engine-only 0, EA-only 0 (agreement 1.0000); range mismatches 0, ATR mismatches 0
+[3] PRIMARY ATR=d1: armed days both 677, engine-only 35, EA-only 19 (agreement 0.9261); range mismatches 0, ATR mismatches 639
+[3] FALLBACK ATR=d1: armed days both 864, engine-only 21, EA-only 6 (agreement 0.9697); range mismatches 0, ATR mismatches 830
+[3] PRIMARY: engine trades 640 (2014-03..2023), on EA non-armed days: 0 []
+[3] FALLBACK: engine trades 775 (2014-03..2023), on EA non-armed days: 0 []
+clock ok: True

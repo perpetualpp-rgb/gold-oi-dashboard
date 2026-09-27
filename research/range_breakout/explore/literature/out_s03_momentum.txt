@@ -1,0 +1,48 @@
+Check B1: Gao et al. / Baltussen et al. intraday momentum on spot gold, COMEX pit clock (ET)
+r_last(13:00-13:30ET) ~ r_ONFH(prev 13:30 -> 08:50ET): slope=0.017 t=2.17 R2=0.84% n=1957 | timing sign(x)*y: mean=0.68bps t=2.35 hit=0.528 yrs+=8/8
+    NY first-30min relative range  low: slope=0.020 t=1.80 R2=0.78% n=617 timing mean=0.80bps t=1.86
+    NY first-30min relative range  mid: slope=0.007 t=0.81 R2=0.12% n=659 timing mean=0.67bps t=1.46
+    NY first-30min relative range high: slope=0.022 t=1.72 R2=1.59% n=672 timing mean=0.63bps t=1.05
+r_last ~ r_ROD(prev 13:30 -> 13:00ET): slope=0.016 t=3.13 R2=1.20% n=1958 | timing sign(x)*y: mean=0.41bps t=1.39 hit=0.517 yrs+=5/8
+    NY first-30min relative range  low: slope=0.011 t=1.30 R2=0.41% n=617 timing mean=0.16bps t=0.38
+    NY first-30min relative range  mid: slope=-0.003 t=-0.45 R2=0.05% n=659 timing mean=-0.27bps t=-0.58
+    NY first-30min relative range high: slope=0.029 t=3.58 R2=4.08% n=672 timing mean=1.38bps t=2.32
+r_last ~ r_first30(08:20-08:50ET): slope=0.002 t=0.14 R2=0.00% n=2016 | timing sign(x)*y: mean=0.01bps t=0.02 hit=0.511 yrs+=3/8
+r(08:50-13:30ET) ~ r_first30(08:20-08:50ET): slope=0.046 t=0.88 R2=0.05% n=2016 | timing sign(x)*y: mean=0.16bps t=0.13 hit=0.513 yrs+=4/8
+    NY first-30min relative range  low: slope=0.407 t=1.88 R2=0.60% n=641 timing mean=4.63bps t=2.57
+    NY first-30min relative range  mid: slope=-0.023 t=-0.20 R2=0.01% n=681 timing mean=-1.66bps t=-0.84
+    NY first-30min relative range high: slope=0.040 t=0.66 R2=0.06% n=684 timing mean=-2.20bps t=-0.90
+
+Check B2: London-clock momentum
+r(07:30-20:00) ~ r(07:00-07:30): slope=0.297 t=1.68 R2=0.23% n=2002 | timing sign(x)*y: mean=0.70bps t=0.41 hit=0.507 yrs+=4/8
+    London first-30min relative range  low: slope=-0.404 t=-0.76 R2=0.08% n=654 timing mean=-0.88bps t=-0.31
+    London first-30min relative range  mid: slope=0.142 t=0.36 R2=0.03% n=669 timing mean=-2.13bps t=-0.75
+    London first-30min relative range high: slope=0.379 t=1.85 R2=0.79% n=669 timing mean=5.12bps t=1.65
+r(08:00-20:00) ~ r(07:00-08:00): slope=0.082 t=0.71 R2=0.04% n=2002 | timing sign(x)*y: mean=-0.01bps t=-0.01 hit=0.494 yrs+=5/8
+r(07:00-20:00) ~ r(00:00-07:00) [Asian drift continues?]: slope=-0.006 t=-0.07 R2=0.00% n=1998 | timing sign(x)*y: mean=2.91bps t=1.68 hit=0.505 yrs+=7/8
+r(13:00-20:00) ~ r(07:00-13:00) [London -> NY]: slope=0.032 t=0.40 R2=0.04% n=2002 | timing sign(x)*y: mean=2.44bps t=1.70 hit=0.497 yrs+=7/8
+
+Check B3 [Asian range 00-07 London, breaks 07-12, exit 20:00 (engine default session)]: race from the broken level, gross (no costs). P(win|resolved) vs 0.5 under a random walk; ft = dir*(P(20:00)-level)/W; cost/W = 0.47/W
+                              subset    n  P0.5  z0.5  res0.5  P1.0  z1.0  res1.0  P2.0  z2.0  res2.0  ft_mean  ft_t  ft_med  cost_W  ft_yrs+
+                                 all 1795 0.531  2.61    1770 0.535  2.71    1470 0.542  2.20     694    0.096  2.23   0.034   0.092        5
+                                long  910 0.521  1.27     892 0.522  1.19     726 0.507  0.27     349    0.095  1.56   0.010   0.090        6
+                               short  885 0.541  2.43     878 0.548  2.64     744 0.577  2.85     345    0.098  1.59   0.058   0.093        5
+                     brk 07:00-07:59 1090 0.531  2.07    1082 0.527  1.60     902 0.520  0.86     440    0.052  0.90   0.049   0.095        5
+                     brk 08:00-11:59  705 0.531  1.60     688 0.549  2.35     568 0.579  2.51     254    0.165  2.58   0.027   0.087        7
+                      brk>=07:30 all 1020 0.522  1.36     999 0.530  1.74     828 0.533  1.29     375    0.111  2.04   0.034   0.089        6
+brk>=07:30 & relact_lon high tercile  231 0.541  1.21     220 0.580  2.12     174 0.627  2.08      67    0.309  2.78   0.142   0.073        7
+ brk>=07:30 & relact_lon low tercile  437 0.539  1.64     432 0.513  0.52     372 0.468 -0.88     186    0.050  0.55   0.054   0.100        4
+  P1.0 by year: 2014:0.528, 2015:0.615, 2016:0.567, 2017:0.554, 2018:0.543, 2019:0.503, 2020:0.520, 2021:0.458
+
+Check B3 [London-morning range 07-13, breaks 13-17 London (NY open), exit 20:00]: race from the broken level, gross (no costs). P(win|resolved) vs 0.5 under a random walk; ft = dir*(P(20:00)-level)/W; cost/W = 0.47/W
+                                             subset    n  P0.5  z0.5  res0.5  P1.0  z1.0  res1.0  P2.0  z2.0  res2.0  ft_mean  ft_t  ft_med  cost_W  ft_yrs+
+                                                all 1900 0.511  0.87    1708 0.541  2.67    1062 0.561  2.38     374    0.040  1.34  -0.046   0.076        6
+                                               long  964 0.495 -0.27     865 0.521  0.99     536 0.578  2.12     187    0.053  1.29  -0.053   0.075        6
+                                              short  936 0.526  1.52     843 0.561  2.79     526 0.545  1.24     187    0.026  0.61  -0.040   0.077        4
+                                    brk 13:00-13:59 1397 0.500  0.03    1311 0.540  2.39     886 0.573  2.64     330    0.064  1.72  -0.045   0.080        7
+                                    brk 14:00-16:59  503 0.544  1.76     397 0.545  1.21     176 0.477 -0.30      44   -0.029 -0.75  -0.050   0.066        3
+relact_ny high tercile (LOOK-AHEAD for brk<08:50ET)  647 0.584  4.09     598 0.586  3.51     421 0.621  3.18     174    0.185  3.15   0.040   0.072        8
+                                     brk>=14:00 all  503 0.544  1.76     397 0.545  1.21     176 0.477 -0.30      44   -0.029 -0.75  -0.050   0.066        3
+                brk>=14:00 & relact_ny high tercile   76 0.603  1.58      58 0.579  0.69      19 0.333 -0.58       3   -0.022 -0.27   0.011   0.046        5
+                 brk>=14:00 & relact_ny low tercile  255 0.540  1.14     198 0.547  0.92      95 0.429 -0.76      28   -0.042 -0.69  -0.061   0.075        3
+  P1.0 by year: 2014:0.525, 2015:0.604, 2016:0.504, 2017:0.494, 2018:0.661, 2019:0.461, 2020:0.569, 2021:0.538

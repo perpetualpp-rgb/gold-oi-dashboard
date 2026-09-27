@@ -1,0 +1,143 @@
+measured fills: {'entry': 293, 'sl': 145, 'time': 70}  trade-hours available: 1473
+
+entry: n=293
+        slip_0  slip_100  slip_250  slip_500  slip_1000  slip_2000  engine_slip  spread_trig  model_spread
+count  293.000   293.000   293.000   293.000    293.000    293.000      293.000      293.000       293.000
+mean     0.063     0.071     0.088     0.094      0.095      0.101        0.050        0.344         0.318
+std      0.118     0.132     0.222     0.245      0.270      0.279        0.003        0.212         0.050
+min      0.000    -0.270    -0.257    -0.257     -0.370     -0.387        0.050        0.098         0.223
+50%      0.023     0.033     0.038     0.034      0.037      0.030        0.050        0.306         0.322
+75%      0.058     0.080     0.082     0.094      0.114      0.127        0.050        0.370         0.367
+90%      0.167     0.212     0.281     0.288      0.282      0.310        0.050        0.454         0.384
+95%      0.257     0.354     0.438     0.526      0.479      0.634        0.050        0.494         0.398
+max      0.929     0.910     2.767     2.842      3.292      2.742        0.103        2.662         0.409
+              slip_0  slip_100  slip_250  slip_500  slip_1000  slip_2000  engine_slip  spread_trig  model_spread
+lo                                                                                                              
+07-09 London   0.067     0.083     0.116     0.136      0.141      0.148         0.05        0.363         0.321
+other          0.061     0.064     0.073     0.071      0.069      0.075         0.05        0.334         0.317
+  mean excess slip vs engine (L=0, 250, 500 ms), in USD and in R:
+   L=   0ms  USD +0.0131 (se 0.0069)  R +0.0020
+   L= 250ms  USD +0.0382 (se 0.0129)  R +0.0050
+   L= 500ms  USD +0.0442 (se 0.0143)  R +0.0057
+   L=1000ms  USD +0.0446 (se 0.0157)  R +0.0058
+  trigger minute differs from engine (|early_min|>1): 0.051
+
+sl: n=145
+        slip_0  slip_100  slip_250  slip_500  slip_1000  slip_2000  engine_slip  spread_trig  model_spread
+count  145.000   145.000   145.000   145.000    145.000    145.000       145.00      145.000       145.000
+mean     0.249     0.242     0.258     0.284      0.293      0.281         0.05        0.361         0.302
+std      0.630     0.572     0.585     0.664      0.729      0.731         0.00        0.410         0.047
+min     -0.000    -0.330    -0.330    -0.130     -0.200     -1.160         0.05        0.001         0.223
+50%      0.041     0.059     0.068     0.079      0.092      0.094         0.05        0.302         0.297
+75%      0.127     0.211     0.211     0.271      0.290      0.252         0.05        0.364         0.353
+90%      0.700     0.639     0.932     0.800      0.686      0.750         0.05        0.495         0.363
+95%      1.215     1.229     1.342     1.486      1.461      1.464         0.05        0.628         0.368
+max      4.517     3.970     4.590     5.370      5.691      5.851         0.05        4.876         0.382
+              slip_0  slip_100  slip_250  slip_500  slip_1000  slip_2000  engine_slip  spread_trig  model_spread
+lo                                                                                                              
+07-09 London   0.145     0.184     0.368     0.403      0.383      0.358         0.05        0.316         0.307
+other          0.257     0.246     0.249     0.275      0.285      0.274         0.05        0.364         0.301
+  mean excess slip vs engine (L=0, 250, 500 ms), in USD and in R:
+   L=   0ms  USD +0.1985 (se 0.0523)  R +0.0346
+   L= 250ms  USD +0.2085 (se 0.0486)  R +0.0343
+   L= 500ms  USD +0.2344 (se 0.0552)  R +0.0386
+   L=1000ms  USD +0.2426 (se 0.0605)  R +0.0397
+  trigger minute differs from engine (|early_min|>1): 0.041
+
+time: n=70
+       slip_0  slip_100  slip_250  slip_500  slip_1000  slip_2000  engine_slip  spread_trig  model_spread
+count  70.000    70.000    70.000    70.000     70.000     70.000        70.00       70.000        70.000
+mean    0.001     0.008     0.011     0.017      0.026      0.035         0.05        0.325         0.317
+std     0.110     0.114     0.130     0.125      0.130      0.146         0.00        0.131         0.039
+min    -0.211    -0.232    -0.172    -0.170     -0.330     -0.320         0.05        0.100         0.243
+50%     0.000    -0.005    -0.004    -0.005      0.000      0.017         0.05        0.311         0.311
+75%     0.018     0.043     0.048     0.054      0.079      0.098         0.05        0.369         0.342
+90%     0.065     0.074     0.088     0.136      0.160      0.198         0.05        0.409         0.376
+95%     0.073     0.097     0.162     0.219      0.231      0.242         0.05        0.451         0.376
+max     0.781     0.771     0.781     0.621      0.621      0.781         0.05        1.157         0.376
+       slip_0  slip_100  slip_250  slip_500  slip_1000  slip_2000  engine_slip  spread_trig  model_spread
+lo                                                                                                       
+other   0.001     0.008     0.011     0.017      0.026      0.035         0.05        0.325         0.317
+  mean excess slip vs engine (L=0, 250, 500 ms), in USD and in R:
+   L=   0ms  USD -0.0494 (se 0.0131)  R -0.0079
+   L= 250ms  USD -0.0392 (se 0.0156)  R -0.0068
+   L= 500ms  USD -0.0331 (se 0.0150)  R -0.0064
+   L=1000ms  USD -0.0243 (se 0.0156)  R -0.0051
+  trigger minute differs from engine (|early_min|>1): 0.0
+{
+ "entry": {
+  "n": 293,
+  "mean_slip_0ms": 0.0633,
+  "mean_slip_100ms": 0.0711,
+  "mean_slip_250ms": 0.0884,
+  "mean_slip_500ms": 0.0944,
+  "mean_slip_1000ms": 0.0948,
+  "mean_slip_2000ms": 0.1012,
+  "p90_slip_0ms": 0.1668,
+  "p90_slip_100ms": 0.2124,
+  "p90_slip_250ms": 0.2808,
+  "p90_slip_500ms": 0.2878,
+  "p90_slip_1000ms": 0.282,
+  "p90_slip_2000ms": 0.3096,
+  "engine_slip_mean": 0.0502,
+  "excess_R_0ms": 0.002,
+  "excess_R_100ms": 0.0027,
+  "excess_R_250ms": 0.005,
+  "excess_R_500ms": 0.0057,
+  "excess_R_1000ms": 0.0058,
+  "excess_R_2000ms": 0.006,
+  "spread_trig_mean": 0.3442,
+  "model_spread_mean": 0.3183,
+  "spread_trig_p90": 0.4538
+ },
+ "sl": {
+  "n": 145,
+  "mean_slip_0ms": 0.2485,
+  "mean_slip_100ms": 0.2417,
+  "mean_slip_250ms": 0.2585,
+  "mean_slip_500ms": 0.2844,
+  "mean_slip_1000ms": 0.2926,
+  "mean_slip_2000ms": 0.2806,
+  "p90_slip_0ms": 0.6996,
+  "p90_slip_100ms": 0.639,
+  "p90_slip_250ms": 0.9318,
+  "p90_slip_500ms": 0.8,
+  "p90_slip_1000ms": 0.686,
+  "p90_slip_2000ms": 0.7498,
+  "engine_slip_mean": 0.05,
+  "excess_R_0ms": 0.0346,
+  "excess_R_100ms": 0.0322,
+  "excess_R_250ms": 0.0343,
+  "excess_R_500ms": 0.0386,
+  "excess_R_1000ms": 0.0397,
+  "excess_R_2000ms": 0.0384,
+  "spread_trig_mean": 0.3606,
+  "model_spread_mean": 0.3016,
+  "spread_trig_p90": 0.4948
+ },
+ "time": {
+  "n": 70,
+  "mean_slip_0ms": 0.0006,
+  "mean_slip_100ms": 0.0082,
+  "mean_slip_250ms": 0.0108,
+  "mean_slip_500ms": 0.0169,
+  "mean_slip_1000ms": 0.0257,
+  "mean_slip_2000ms": 0.0349,
+  "p90_slip_0ms": 0.0652,
+  "p90_slip_100ms": 0.0743,
+  "p90_slip_250ms": 0.088,
+  "p90_slip_500ms": 0.1364,
+  "p90_slip_1000ms": 0.1595,
+  "p90_slip_2000ms": 0.1982,
+  "engine_slip_mean": 0.05,
+  "excess_R_0ms": -0.0079,
+  "excess_R_100ms": -0.0068,
+  "excess_R_250ms": -0.0068,
+  "excess_R_500ms": -0.0064,
+  "excess_R_1000ms": -0.0051,
+  "excess_R_2000ms": -0.0042,
+  "spread_trig_mean": 0.3254,
+  "model_spread_mean": 0.3172,
+  "spread_trig_p90": 0.4095
+ }
+}

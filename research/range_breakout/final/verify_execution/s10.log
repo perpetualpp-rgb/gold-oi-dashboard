@@ -1,0 +1,43 @@
+{
+ "tick_rows": {
+  "entry": 297,
+  "sl": 146,
+  "time": 71
+ },
+ "excess_usd_L0": {
+  "entry_open": 0.0175,
+  "entry_other": 0.0104,
+  "sl": 0.1969,
+  "time": -0.0495
+ },
+ "excess_usd_L250": {
+  "entry_open": 0.0684,
+  "entry_other": 0.0226,
+  "sl": 0.2073,
+  "time": -0.0407
+ },
+ "excess_usd_L500": {
+  "entry_open": 0.0873,
+  "entry_other": 0.0274,
+  "sl": 0.233,
+  "time": -0.0338
+ },
+ "excess_usd_L1000": {
+  "entry_open": 0.0915,
+  "entry_other": 0.0251,
+  "sl": 0.2412,
+  "time": -0.025
+ }
+}
+slippage component L 250 {'mean': np.float64(-0.0175), 'ci90': [np.float64(-0.0245), np.float64(-0.0108)]}
+slippage component L 500 {'mean': np.float64(-0.0215), 'ci90': [np.float64(-0.0299), np.float64(-0.014)]}
+engine (k1, slip .05)                                                  IS +0.1216 (t 1.94)  VAL +0.0202  ALL +0.1038 n 645.0
+tick slippage L=250ms only                                             IS +0.1032 (t 1.63)  VAL +0.0066  ALL +0.0862 n 645.0
+tick slippage L=500ms only                                             IS +0.0990 (t 1.56)  VAL +0.0037  ALL +0.0823 n 645.0
+SL attached to pending order only                                      IS +0.1172 (t 1.86)  VAL +0.0163  ALL +0.0995 n 645.0
+NY-close D1 ATR only                                                   IS +0.1405 (t 2.18)  VAL +0.0253  ALL +0.1198 n 630.0
+feed noise sigma .03 only                                              IS +0.1187 (t 1.90)  VAL +0.0184  ALL +0.1011 n 648.7
+CENTRAL: k1.0, ticks L250, feed .03, spike .003, SL mod after fill     IS +0.0973 (t 1.54)  VAL +0.0017  ALL +0.0805 n 648.7
+CENTRAL + NY-close ATR                                                 IS +0.1131 (t 1.75)  VAL +0.0084  ALL +0.0944 n 633.9
+RETAIL: k1.25, ticks L500, feed .06, spike .003                        IS +0.0784 (t 1.26)  VAL -0.0303  ALL +0.0595 n 659.8
+ADVERSE: k1.5, ticks L1000, feed .12, spike .003, attached SL          IS +0.0302 (t 0.51)  VAL -0.0466  ALL +0.0169 n 688.1

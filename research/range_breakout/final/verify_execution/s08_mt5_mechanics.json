@@ -1,0 +1,48 @@
+{
+ "placement": {
+  "filter_days": 717,
+  "share_level_already_crossed": 0.0335,
+  "share_within_010": 0.0656,
+  "share_within_030": 0.1185,
+  "share_within_050": 0.2008,
+  "share_within_100": 0.3724,
+  "first_bar_trades": 59
+ },
+ "sl_anchoring": {
+  "mean_extra_usd": 0.0569,
+  "p99_extra": 0.319,
+  "R_engine": 0.1038,
+  "R_attached_SL": 0.0995,
+  "delta": -0.0043
+ },
+ "early_close": {
+  "n": 14,
+  "R_engine_sum": -1.35,
+  "R_naive_hold_sum": 2.27,
+  "delta_avgR_all": 0.0056,
+  "dates": [
+   "2014-11-28",
+   "2015-11-27",
+   "2016-05-30",
+   "2017-11-24",
+   "2018-12-24",
+   "2019-05-27",
+   "2019-09-02",
+   "2019-11-29",
+   "2019-12-24",
+   "2022-05-30",
+   "2022-07-04",
+   "2022-11-25",
+   "2023-09-04",
+   "2023-11-23"
+  ]
+ },
+ "both_levels_same_bar": {
+  "days_with_touch": 645,
+  "both_same_bar": 0
+ },
+ "entry_bar_stopouts": {
+  "n": 0,
+  "share": 0.0
+ }
+}

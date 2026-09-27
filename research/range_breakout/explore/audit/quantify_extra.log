@@ -1,0 +1,4 @@
+OLD trend200: IS n=1029 avgR=+0.0199 t=+0.44 | long n=537 short n=492 | 2014 trades long/short: 0/114
+NEW trend200: IS n=941 avgR=+0.0278 t=+0.59 | long n=537 short n=404 | 2014 trades long/short: 0/26
+OLD evening rng -6..-2, trend20, min_w_atr .3: IS n=60 avgR=-0.2021 t=-2.83 | long n=27 short n=33 | 2014 trades long/short: 6/7
+NEW evening rng -6..-2, trend20, min_w_atr .3: IS n=54 avgR=-0.2092 t=-2.71 | long n=24 short n=30 | 2014 trades long/short: 5/5

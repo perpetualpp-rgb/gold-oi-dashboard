@@ -1,0 +1,117 @@
+{
+ "duka_last_day": "2014-10-25",
+ "primary": {
+  "hist_n": 33,
+  "hist_avgR": 0.3932,
+  "hist_sumR": 12.98,
+  "duka_n": 38,
+  "duka_avgR": 0.2594,
+  "duka_sumR": 9.86,
+  "common_days": 31,
+  "same_dir": 31,
+  "corr_R_common": 1.0,
+  "avg_spread_duka_entry": 0.264,
+  "avg_spread_hist_entry": 0.293,
+  "top_hist_trades_vs_duka": [
+   {
+    "date": "2014-06-19",
+    "dir_hd": 1.0,
+    "R_hd": 11.745,
+    "dir_dk": 1.0,
+    "R_dk": 11.76
+   },
+   {
+    "date": "2014-07-14",
+    "dir_hd": -1.0,
+    "R_hd": 3.108,
+    "dir_dk": -1.0,
+    "R_dk": 3.101
+   },
+   {
+    "date": "2014-09-02",
+    "dir_hd": -1.0,
+    "R_hd": 2.512,
+    "dir_dk": -1.0,
+    "R_dk": 2.537
+   },
+   {
+    "date": "2014-04-15",
+    "dir_hd": -1.0,
+    "R_hd": 2.007,
+    "dir_dk": -1.0,
+    "R_dk": 2.017
+   },
+   {
+    "date": "2014-05-30",
+    "dir_hd": -1.0,
+    "R_hd": 1.732,
+    "dir_dk": -1.0,
+    "R_dk": 1.752
+   },
+   {
+    "date": "2014-02-24",
+    "dir_hd": 1.0,
+    "R_hd": 1.54,
+    "dir_dk": 1.0,
+    "R_dk": 1.538
+   }
+  ]
+ },
+ "fallback": {
+  "hist_n": 56,
+  "hist_avgR": 0.1773,
+  "hist_sumR": 9.93,
+  "duka_n": 58,
+  "duka_avgR": 0.1207,
+  "duka_sumR": 7.0,
+  "common_days": 55,
+  "same_dir": 55,
+  "corr_R_common": 0.985,
+  "avg_spread_duka_entry": 0.269,
+  "avg_spread_hist_entry": 0.29,
+  "top_hist_trades_vs_duka": [
+   {
+    "date": "2014-03-19",
+    "dir_hd": -1.0,
+    "R_hd": 3.513,
+    "dir_dk": -1.0,
+    "R_dk": 3.536
+   },
+   {
+    "date": "2014-07-14",
+    "dir_hd": -1.0,
+    "R_hd": 3.108,
+    "dir_dk": -1.0,
+    "R_dk": 3.101
+   },
+   {
+    "date": "2014-09-02",
+    "dir_hd": -1.0,
+    "R_hd": 2.512,
+    "dir_dk": -1.0,
+    "R_dk": 2.537
+   },
+   {
+    "date": "2014-10-06",
+    "dir_hd": 1.0,
+    "R_hd": 2.415,
+    "dir_dk": 1.0,
+    "R_dk": 2.399
+   },
+   {
+    "date": "2014-07-17",
+    "dir_hd": 1.0,
+    "R_hd": 2.297,
+    "dir_dk": 1.0,
+    "R_dk": 2.251
+   },
+   {
+    "date": "2014-04-15",
+    "dir_hd": -1.0,
+    "R_hd": 2.007,
+    "dir_dk": -1.0,
+    "R_dk": 2.017
+   }
+  ]
+ }
+}

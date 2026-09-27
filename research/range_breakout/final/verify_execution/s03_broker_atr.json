@@ -1,0 +1,100 @@
+{
+ "ny_close": {
+  "IS": {
+   "n": 517,
+   "avg_R": 0.1405,
+   "t": 2.18,
+   "PF": 1.293
+  },
+  "VAL": {
+   "n": 113,
+   "avg_R": 0.0253,
+   "t": 0.2,
+   "PF": 1.048
+  },
+  "days_vs_engine": {
+   "n": 630,
+   "engine_n": 645,
+   "common": 614,
+   "only_here": 16,
+   "only_engine": 31
+  },
+  "corr_atr_vs_london_IS": 0.9981,
+  "mean_ratio_atr_vs_london": 1.0095
+ },
+ "gmt0_sun": {
+  "IS": {
+   "n": 710,
+   "avg_R": 0.1183,
+   "t": 2.08,
+   "PF": 1.235
+  },
+  "VAL": {
+   "n": 166,
+   "avg_R": -0.1242,
+   "t": -1.32,
+   "PF": 0.775
+  },
+  "days_vs_engine": {
+   "n": 876,
+   "engine_n": 645,
+   "common": 545,
+   "only_here": 331,
+   "only_engine": 100
+  },
+  "corr_atr_vs_london_IS": 0.9824,
+  "mean_ratio_atr_vs_london": 0.8736
+ },
+ "gmt0_nosun": {
+  "IS": {
+   "n": 520,
+   "avg_R": 0.1296,
+   "t": 2.02,
+   "PF": 1.269
+  },
+  "VAL": {
+   "n": 114,
+   "avg_R": 0.0285,
+   "t": 0.22,
+   "PF": 1.054
+  },
+  "days_vs_engine": {
+   "n": 634,
+   "engine_n": 645,
+   "common": 631,
+   "only_here": 3,
+   "only_engine": 14
+  },
+  "corr_atr_vs_london_IS": 0.9995,
+  "mean_ratio_atr_vs_london": 1.0042
+ },
+ "london": {
+  "IS": {
+   "n": 532,
+   "avg_R": 0.1216,
+   "t": 1.94,
+   "PF": 1.253
+  },
+  "VAL": {
+   "n": 113,
+   "avg_R": 0.0202,
+   "t": 0.16,
+   "PF": 1.038
+  },
+  "days_vs_engine": {
+   "n": 645,
+   "engine_n": 645,
+   "common": 645,
+   "only_here": 0,
+   "only_engine": 0
+  },
+  "corr_atr_vs_london_IS": 1.0,
+  "mean_ratio_atr_vs_london": 1.0
+ },
+ "ny_close_swap": {
+  "dropped_n": 31,
+  "dropped_avgR": -0.054,
+  "added_n": 16,
+  "added_avgR": 0.4286
+ }
+}

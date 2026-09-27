@@ -1,0 +1,33 @@
+{
+ "primary": {
+  "gross_IS": 0.2334,
+  "gross_VAL": 0.0333,
+  "gross_HO": 0.0707,
+  "cost_R_IS": 0.08,
+  "cost_R_HO": 0.034,
+  "net_HO": 0.0534,
+  "net_HO_at_IS_cost_R": -0.0093,
+  "gross_excess_over_baseline_IS": 0.1346,
+  "gross_excess_over_baseline_HO": -0.0126
+ },
+ "fallback": {
+  "gross_IS": 0.2033,
+  "gross_VAL": 0.082,
+  "gross_HO": 0.0936,
+  "cost_R_IS": 0.065,
+  "cost_R_HO": 0.028,
+  "net_HO": 0.0733,
+  "net_HO_at_IS_cost_R": 0.0286,
+  "gross_excess_over_baseline_IS": 0.1045,
+  "gross_excess_over_baseline_HO": 0.0103
+ },
+ "baseline": {
+  "gross_IS": 0.0988,
+  "gross_VAL": 0.0581,
+  "gross_HO": 0.0833,
+  "cost_R_IS": 0.09,
+  "cost_R_HO": 0.037,
+  "net_HO": 0.0505,
+  "net_HO_at_IS_cost_R": -0.0067
+ }
+}

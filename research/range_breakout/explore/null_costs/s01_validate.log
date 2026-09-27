@@ -1,0 +1,20 @@
+default          n= 2306  max|dR|=0.00e+00  mismatches=0
+sl0.5_tp2        n= 2306  max|dR|=0.00e+00  mismatches=0
+tp1              n= 2306  max|dR|=0.00e+00  mismatches=0
+be1_trail1       n= 2306  max|dR|=0.00e+00  mismatches=0
+trail0.5         n= 2306  max|dR|=0.00e+00  mismatches=0
+max_trades2      n= 2664  max|dR|=0.00e+00  mismatches=0
+max2_tp1.5       n= 2664  max|dR|=0.00e+00  mismatches=0
+confirm15        n= 1991  max|dR|=0.00e+00  mismatches=0
+confirm5_max2    n= 2300  max|dR|=0.00e+00  mismatches=0
+fade_tp1         n= 2213  max|dR|=0.00e+00  mismatches=0
+fade_atr_pen     n= 2196  max|dR|=0.00e+00  mismatches=0
+atr_stop         n= 2306  max|dR|=0.00e+00  mismatches=0
+opp_edge         n= 2100  max|dR|=0.00e+00  mismatches=0
+trend200         n= 1188  max|dR|=0.00e+00  mismatches=0
+evening          n= 1569  max|dR|=0.00e+00  mismatches=0
+exit2154         n= 2306  max|dR|=0.00e+00  mismatches=0
+ny               n= 2287  max|dR|=0.00e+00  mismatches=0
+costs0           n= 2306  max|dR|=0.00e+00  mismatches=0
+spread x2        n= 2352  max|dR|=0.00e+00  mismatches=0
+ALL OK (3.9s)

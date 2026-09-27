@@ -1,0 +1,37 @@
+A cut=2017-06-30 OK n=775
+A cut=2017-06-30 OK n=268
+A cut=2017-06-30 OK n=400
+A cut=2017-06-30 OK n=448
+A cut=2017-06-30 OK n=691
+A cut=2017-06-30 OK n=775
+A cut=2017-06-30 OK n=641
+A cut=2017-06-30 OK n=79
+A cut=2017-06-30 OK n=811
+A cut=2017-06-30 OK n=885
+A cut=2020-03-16 OK n=1403
+A cut=2020-03-16 OK n=462
+A cut=2020-03-16 OK n=774
+A cut=2020-03-16 OK n=857
+A cut=2020-03-16 OK n=1284
+A cut=2020-03-16 OK n=1403
+A cut=2020-03-16 OK n=1192
+A cut=2020-03-16 OK n=167
+A cut=2020-03-16 OK n=1477
+A cut=2020-03-16 OK n=1617
+B OK first entries before 09:00: 1574 vs 1574
+B OK first entries before 09:00: 536 vs 536
+B OK first entries before 09:00: 788 vs 788
+B OK first entries before 09:00: 952 vs 952
+B OK first entries before 09:00: 1109 vs 1109
+B OK first entries before 09:00: 1574 vs 1574
+B DIFF first entries before 09:00: 1370 vs 1
+FAILURES: 1  configs: 10
+A cut=2020-03-16 OK n=1617
+B OK first entries before 09:00: 1574 vs 1574
+B OK first entries before 09:00: 536 vs 536
+B OK first entries before 09:00: 788 vs 788
+B OK first entries before 09:00: 952 vs 952
+B OK first entries before 09:00: 1109 vs 1109
+B OK first entries before 09:00: 1574 vs 1574
+B OK first entries before 09:00: 1370 vs 1370
+FAILURES: 0  configs: 10

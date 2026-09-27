@@ -1,0 +1,724 @@
+{
+ "broad_family_IS": {
+  "n_configs": 8856,
+  "primary_avg_R": 0.1216,
+  "primary_t_boot": 1.914,
+  "primary_rank": 1140,
+  "fallback_t_boot": 2.504,
+  "fallback_rank": 224,
+  "best_t": 3.286,
+  "maxt_q95": 3.957,
+  "maxt_mean": 2.772,
+  "p_family_primary": 0.905,
+  "p_family_fallback": 0.6397,
+  "p_family_best": 0.2069,
+  "frac_configs_t_gt_1_96": 0.1136,
+  "frac_configs_avgR_gt0": 0.8313,
+  "N_eff_from_q95": 1349.7,
+  "N_eff_from_mean_max": 203.8
+ },
+ "broad_family_VAL": {
+  "n_configs": 8874,
+  "primary_avg_R": 0.0202,
+  "primary_t_boot": 0.165,
+  "primary_rank": 5594,
+  "fallback_t_boot": 0.449,
+  "fallback_rank": 4260,
+  "best_t": 3.192,
+  "maxt_q95": 4.225,
+  "maxt_mean": 2.829,
+  "p_family_primary": 1.0,
+  "p_family_fallback": 1.0,
+  "p_family_best": 0.2854,
+  "frac_configs_t_gt_1_96": 0.0123,
+  "frac_configs_avgR_gt0": 0.7087,
+  "N_eff_from_q95": 4296.4,
+  "N_eff_from_mean_max": 243.1
+ },
+ "IS_to_VAL_decay": {
+  "slope_VAL_on_IS": 0.262,
+  "intercept": 0.0262,
+  "pred_VAL_primary": 0.0581,
+  "corr": 0.169,
+  "IS_t_1.5_2.0": {
+   "n_cfg": 1565,
+   "IS_mean": 0.1036,
+   "VAL_mean": 0.0648,
+   "VAL_frac_pos": 0.842
+  },
+  "IS_t_1.8_2.2": {
+   "n_cfg": 929,
+   "IS_mean": 0.1128,
+   "VAL_mean": 0.0764,
+   "VAL_frac_pos": 0.888
+  },
+  "IS_t_2.0_2.5": {
+   "n_cfg": 648,
+   "IS_mean": 0.12,
+   "VAL_mean": 0.0878,
+   "VAL_frac_pos": 0.926
+  },
+  "IS_t_2.5_9": {
+   "n_cfg": 220,
+   "IS_mean": 0.1624,
+   "VAL_mean": 0.106,
+   "VAL_frac_pos": 0.968
+  }
+ },
+ "IS_split_half_decay": {
+  "A_2014_17->B_2018_21": {
+   "slope": 0.115,
+   "corr": 0.164,
+   "t_1.5_2.0": {
+    "n_cfg": 968,
+    "sel_mean": 0.1583,
+    "other_mean": 0.0476,
+    "ratio": 0.301
+   },
+   "t_2.0_2.5": {
+    "n_cfg": 390,
+    "sel_mean": 0.2179,
+    "other_mean": 0.0588,
+    "ratio": 0.27
+   },
+   "t_2.5_9": {
+    "n_cfg": 78,
+    "sel_mean": 0.2163,
+    "other_mean": 0.0487,
+    "ratio": 0.225
+   },
+   "primary_first": 0.1407,
+   "primary_second": 0.1043
+  },
+  "B_2018_21->A_2014_17": {
+   "slope": 0.233,
+   "corr": 0.164,
+   "t_1.5_2.0": {
+    "n_cfg": 644,
+    "sel_mean": 0.1242,
+    "other_mean": 0.0613,
+    "ratio": 0.494
+   },
+   "t_2.0_2.5": {
+    "n_cfg": 146,
+    "sel_mean": 0.1681,
+    "other_mean": 0.0694,
+    "ratio": 0.413
+   },
+   "t_2.5_9": {
+    "n_cfg": 6,
+    "sel_mean": 0.2262,
+    "other_mean": 0.0824,
+    "ratio": 0.364
+   },
+   "primary_first": 0.1043,
+   "primary_second": 0.1407
+  }
+ },
+ "sr_cross_sectional": {
+  "V": 0.002902,
+  "sd": 0.0539,
+  "mean": 0.0502,
+  "max": 0.2701
+ },
+ "DSR": [
+  {
+   "N": 1,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.0,
+   "DSR": 0.983,
+   "case": "N=1",
+   "period": "IS"
+  },
+  {
+   "N": 2.3,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.0279,
+   "DSR": 0.9214,
+   "case": "N_eff_grid24_participation=2.3",
+   "period": "IS"
+  },
+  {
+   "N": 12,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.0722,
+   "DSR": 0.6164,
+   "case": "N_eff_grid24_maxt~12",
+   "period": "IS"
+  },
+  {
+   "N": 203.8,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.1202,
+   "DSR": 0.1798,
+   "case": "N_eff_broad_meanmax",
+   "period": "IS"
+  },
+  {
+   "N": 1349.7,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.1448,
+   "DSR": 0.062,
+   "case": "N_eff_broad_q95",
+   "period": "IS"
+  },
+  {
+   "N": 12960,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.1701,
+   "DSR": 0.0147,
+   "case": "N=12960 raw broad",
+   "period": "IS"
+  },
+  {
+   "N": 20000,
+   "V": 0.00188,
+   "SR": 0.0839,
+   "SR0": 0.1746,
+   "DSR": 0.011,
+   "case": "N=20000 raw round1",
+   "period": "IS"
+  },
+  {
+   "N": 203.8,
+   "V": 0.002902,
+   "SR": 0.0839,
+   "SR0": 0.1493,
+   "DSR": 0.0493,
+   "case": "V=xsect broad, N_eff_meanmax",
+   "period": "IS"
+  },
+  {
+   "N": 12960,
+   "V": 0.002902,
+   "SR": 0.0839,
+   "SR0": 0.2114,
+   "DSR": 0.0006,
+   "case": "V=xsect broad, N=12960",
+   "period": "IS"
+  },
+  {
+   "N": 1,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.0,
+   "DSR": 0.9759,
+   "case": "N=1",
+   "period": "POOLED"
+  },
+  {
+   "N": 2.3,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.0253,
+   "DSR": 0.9003,
+   "case": "N_eff_grid24_participation=2.3",
+   "period": "POOLED"
+  },
+  {
+   "N": 12,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.0656,
+   "DSR": 0.5726,
+   "case": "N_eff_grid24_maxt~12",
+   "period": "POOLED"
+  },
+  {
+   "N": 203.8,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.1091,
+   "DSR": 0.1564,
+   "case": "N_eff_broad_meanmax",
+   "period": "POOLED"
+  },
+  {
+   "N": 1349.7,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.1315,
+   "DSR": 0.0525,
+   "case": "N_eff_broad_q95",
+   "period": "POOLED"
+  },
+  {
+   "N": 12960,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.1545,
+   "DSR": 0.0122,
+   "case": "N=12960 raw broad",
+   "period": "POOLED"
+  },
+  {
+   "N": 20000,
+   "V": 0.00155,
+   "SR": 0.0722,
+   "SR0": 0.1586,
+   "DSR": 0.0091,
+   "case": "N=20000 raw round1",
+   "period": "POOLED"
+  },
+  {
+   "N": 203.8,
+   "V": 0.002902,
+   "SR": 0.0722,
+   "SR0": 0.1493,
+   "DSR": 0.0175,
+   "case": "V=xsect broad, N_eff_meanmax",
+   "period": "POOLED"
+  },
+  {
+   "N": 12960,
+   "V": 0.002902,
+   "SR": 0.0722,
+   "SR0": 0.2114,
+   "DSR": 0.0001,
+   "case": "V=xsect broad, N=12960",
+   "period": "POOLED"
+  }
+ ],
+ "haircut_IS": [
+  {
+   "N": 12,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 0.6355,
+   "SR_ann_haircut": 0.168,
+   "haircut": 0.755
+  },
+  {
+   "N": 12,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 0.6355,
+   "SR_ann_haircut": 0.168,
+   "haircut": 0.755
+  },
+  {
+   "N": 12,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 24,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 24,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 24,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 50,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 50,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 50,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 204,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 204,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 204,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1350,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1350,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1350,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 200,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 200,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 200,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1000,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1000,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1000,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 12960,
+   "method": "Bonferroni",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 12960,
+   "method": "Holm_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 12960,
+   "method": "BHY_rank1",
+   "SR_ann": 0.684,
+   "p": 0.053,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  }
+ ],
+ "haircut_POOLED": [
+  {
+   "N": 12,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 0.7985,
+   "SR_ann_haircut": 0.081,
+   "haircut": 0.861
+  },
+  {
+   "N": 12,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 0.7985,
+   "SR_ann_haircut": 0.081,
+   "haircut": 0.861
+  },
+  {
+   "N": 12,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 24,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 24,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 24,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 50,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 50,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 50,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 204,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 204,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 204,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1350,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1350,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1350,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 200,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 200,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 200,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1000,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1000,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 1000,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 12960,
+   "method": "Bonferroni",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 12960,
+   "method": "Holm_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  },
+  {
+   "N": 12960,
+   "method": "BHY_rank1",
+   "SR_ann": 0.58,
+   "p": 0.0665,
+   "p_adj": 1,
+   "SR_ann_haircut": 0.0,
+   "haircut": 1.0
+  }
+ ]
+}
