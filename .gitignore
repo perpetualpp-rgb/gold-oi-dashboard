@@ -6,3 +6,4 @@ __pycache__/
 research/range_breakout/explore/**/*.pkl
 research/range_breakout/explore/**/*.parquet
 research/range_breakout/**/*.npz
+research/range_breakout/**/*.bi5
