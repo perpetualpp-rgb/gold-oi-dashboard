@@ -25,7 +25,7 @@
 //| a restart and are retried until they succeed.                    |
 //+------------------------------------------------------------------+
 #property copyright "gold-oi-dashboard"
-#property version   "1.11"
+#property version   "1.12"
 #property description "Range Breakout for XAUUSD: daily range before a session open, DST-aware check time, ATR range filter, pending or close-confirmed entries, ATR-scaled distances, risk-based lots."
 
 #include <Trade/Trade.mqh>
@@ -213,7 +213,6 @@ struct GRBSide
 struct GRBSetup
   {
    bool              active;        // entries still possible
-   bool              killPendings;  // delete every pending order of this setup (OCO / window over / news)
    datetime          localDay;      // local (timezone) date of the setup
    datetime          checkServer;   // check time, server clock
    datetime          windowEnd;     // end of entry window, server clock
@@ -251,6 +250,8 @@ datetime  g_nextCleanupTry   = 0;
 bool      g_noSpecifiedExpiry = false;
 string    g_prefix           = "";    // chart objects
 string    g_gv               = "";    // terminal global variables
+datetime  g_killDay          = 0;     // setup day whose pending orders must all go (OCO / setup ended), persisted
+bool      g_needRecover      = false; // rebuild the day's state on the first tick (fresh server time / history)
 
 //+------------------------------------------------------------------+
 //| Logging                                                          |
@@ -277,6 +278,13 @@ double GVGet(const string key, const double fallback = 0.0)
    if(GlobalVariableGet(g_gv + key, v))
       return v;
    return fallback;
+  }
+
+// write state that must survive a crash straight to disk
+void GVFlush()
+  {
+   if(!g_optimizing)
+      GlobalVariablesFlush();
   }
 
 //+------------------------------------------------------------------+
@@ -1058,10 +1066,23 @@ double CalcLots(const bool isBuy, const double entry, const double sl)
 //+------------------------------------------------------------------+
 //| Initial risk (R) per position, kept in terminal global variables |
 //+------------------------------------------------------------------+
+// R and setup day of a position, keyed by its id (= ticket of the opening order)
 void RegisterRisk(const ulong positionId, const double slDist)
   {
-   if(positionId > 0 && slDist > 0)
+   if(positionId == 0)
+      return;
+   if(slDist > 0)
       GVSet("R_" + (string)positionId, slDist);
+   if(g_s.localDay > 0)
+      GVSet("D_" + (string)positionId, (double)g_s.localDay);
+   GVFlush();
+  }
+
+// setup day an order / position belongs to: the recorded one, else derived from its time
+datetime SetupDayFor(const ulong id, const datetime serverTime)
+  {
+   datetime d = (datetime)GVGet("D_" + (string)id, 0);
+   return (d > 0) ? d : SetupDayOf(serverTime);
   }
 
 double InitialRisk(const ulong positionId, const bool isBuy, const double openPrice, const double currentSL)
@@ -1098,11 +1119,17 @@ double InitialRisk(const ulong positionId, const bool isBuy, const double openPr
 // drop R records of positions that no longer exist
 void CleanupRiskRecords()
   {
-   string pre = g_gv + "R_";
+   string preR = g_gv + "R_", preD = g_gv + "D_";
    for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
      {
       string name = GlobalVariableName(i);
-      if(StringFind(name, pre) != 0)
+      string pre  = "";
+      if(StringFind(name, preR) == 0)
+         pre = preR;
+      else
+         if(StringFind(name, preD) == 0)
+            pre = preD;
+      if(pre == "")
          continue;
       ulong id = (ulong)StringToInteger(StringSubstr(name, StringLen(pre)));
       bool open = false;
@@ -1225,6 +1252,27 @@ int PlacePending(const bool isBuy)
    return 1;
   }
 
+//--- per-day state persisted for restarts: A_DAY / A_ACT / A_SIDES / A_VV / A_SPR / A_ATR, KILL
+void SaveSides()
+  {
+   if(g_s.localDay == 0 || (datetime)GVGet("A_DAY", 0) != g_s.localDay)
+      return;
+   int mask = (g_s.buy.done ? 1 : 0) | (g_s.sell.done ? 2 : 0) | (g_s.buy.filled ? 4 : 0) | (g_s.sell.filled ? 8 : 0);
+   GVSet("A_SIDES", mask);
+   GVSet("A_ACT", g_s.active ? 1.0 : 0.0);
+   GVFlush();
+  }
+
+// every pending order of this setup day must go (OCO fill / setup ended)
+void KillDay(const datetime day)
+  {
+   if(day == 0 || day == g_killDay)
+      return;
+   g_killDay = day;
+   GVSet("KILL", (double)day);
+   GVFlush();
+  }
+
 void MarkFilled(const bool isBuy)
   {
    if(isBuy)
@@ -1244,7 +1292,10 @@ void MarkFilled(const bool isBuy)
    RecolorBox(isBuy ? InpColUp : InpColDown);
    g_s.status = isBuy ? "broken UP - long" : "broken DOWN - short";
    if(!InpOCO)
+     {
+      SaveSides();
       return;
+     }
    // OCO: the opposite side is finished
    if(isBuy)
      {
@@ -1269,7 +1320,8 @@ void MarkFilled(const bool isBuy)
          Log(StringFormat("OCO: delete %I64u failed: %u %s - will retry", other, g_trade.ResultRetcode(),
                           g_trade.ResultRetcodeDescription()), true);
      }
-   g_s.killPendings = true;   // Housekeeping() retries a failed delete and covers restarts
+   KillDay(g_s.localDay);   // Housekeeping() retries a failed delete and covers restarts
+   SaveSides();
   }
 
 void FailSide(const bool isBuy)
@@ -1281,6 +1333,7 @@ void FailSide(const bool isBuy)
       if(g_s.buy.fails >= GRB_MAX_FAILS)
         {
          g_s.buy.done = true;
+         SaveSides();
          Log("Buy side given up after repeated failures", true);
         }
      }
@@ -1291,6 +1344,7 @@ void FailSide(const bool isBuy)
       if(g_s.sell.fails >= GRB_MAX_FAILS)
         {
          g_s.sell.done = true;
+         SaveSides();
          Log("Sell side given up after repeated failures", true);
         }
      }
@@ -1308,6 +1362,7 @@ void SideGone(const bool isBuy)
       g_s.sell.ticket = 0;
       g_s.sell.done   = true;
      }
+   SaveSides();
   }
 
 // pending order still waiting / filled / gone
@@ -1474,7 +1529,6 @@ void ResetSide(GRBSide &side)
 void ResetSetup()
   {
    g_s.active       = false;
-   g_s.killPendings = false;
    g_s.localDay     = 0;
    g_s.checkServer  = 0;
    g_s.windowEnd    = 0;
@@ -1494,8 +1548,7 @@ void ResetSetup()
 void Deactivate()
   {
    g_s.active = false;
-   if((datetime)GVGet("ARMED_DAY", 0) == g_s.localDay)
-      GVSet("ARMED_DAY", 0);
+   SaveSides();
   }
 
 void EndSetup(const string why)
@@ -1506,7 +1559,7 @@ void EndSetup(const string why)
    CheckPendingStatus(true);
    CheckPendingStatus(false);
    Deactivate();
-   g_s.killPendings = true;
+   KillDay(g_s.localDay);
    if(!g_s.buy.filled && !g_s.sell.filled)
       g_s.status = "no trade (" + why + ")";
    Log("Setup ended: " + why);
@@ -1536,13 +1589,14 @@ void ArmSetup(const datetime localDay, const double top, const double bottom, co
    g_s.buy.entry    = NormPrice(top + Pips(InpBuyBufferPips) + askAdj);
    g_s.sell.entry   = NormPrice(bottom - Pips(InpSellBufferPips));
    g_s.active       = true;
-   g_s.killPendings = false;
    g_s.status       = resumed ? "resumed after restart" : "range armed";
    if(!resumed)
      {
-      GVSet("ARMED_DAY", (double)localDay);
-      GVSet("ARMED_VV", g_vv);
-      GVSet("ARMED_SPREAD", g_s.spread);
+      GVSet("A_DAY", (double)localDay);
+      GVSet("A_VV", g_vv);
+      GVSet("A_SPR", g_s.spread);
+      GVSet("A_ATR", atr);
+      SaveSides();   // also sets A_ACT = 1 and flushes
      }
    string info = StringFormat("%s  %.1f pips  %.2f ATR", TimeToString(localDay, TIME_DATE), (top - bottom) / g_pip,
                               atr > 0 ? (top - bottom) / atr : 0.0);
@@ -1693,7 +1747,7 @@ void Housekeeping(const datetime now)
       ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
       if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP)
          continue;
-      datetime day = SetupDayOf((datetime)OrderGetInteger(ORDER_TIME_SETUP));
+      datetime day = SetupDayFor(tk, (datetime)OrderGetInteger(ORDER_TIME_SETUP));
       string why = "";
       if(g_halted)
          why = "daily loss limit";
@@ -1701,8 +1755,8 @@ void Housekeeping(const datetime now)
          if(now >= WindowEndFor(day))
             why = "entry window over";
          else
-            if(g_s.killPendings && day == g_s.localDay)
-               why = (g_s.buy.filled || g_s.sell.filled) ? "OCO" : "setup ended";
+            if(day == g_killDay)
+               why = "OCO / setup finished";
       if(why == "")
          continue;
       if(g_trade.OrderDelete(tk))
@@ -1730,7 +1784,8 @@ void Housekeeping(const datetime now)
          why = "daily loss limit";
       else
         {
-         datetime closeServer = CloseTimeFor(SetupDayOf((datetime)PositionGetInteger(POSITION_TIME)));
+         ulong id = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
+         datetime closeServer = CloseTimeFor(SetupDayFor(id, (datetime)PositionGetInteger(POSITION_TIME)));
          if(closeServer > 0 && now >= closeServer)
             why = "close time";
         }
@@ -1823,6 +1878,7 @@ void SaveGuard()
    GVSet("GUARD_DAY", (double)g_guardDay);
    GVSet("GUARD_EQ", g_guardEquity);
    GVSet("GUARD_HALT", g_halted ? 1.0 : 0.0);
+   GVFlush();
   }
 
 void LoadGuard(const datetime now)
@@ -1889,7 +1945,7 @@ void UpdatePanel(const datetime now)
    g_lastPanel = now;
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   string s = "Gold Range Breakout v1.11  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
+   string s = "Gold Range Breakout v1.12  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
    s += StringFormat("%s time %s  |  server %s\n", TZName(), TimeToString(ServerToLocal(now), TIME_MINUTES),
                      TimeToString(now, TIME_MINUTES));
    s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f%s\n", InpCheckHour, InpCheckMinute, TZName(),
@@ -1913,23 +1969,26 @@ void UpdatePanel(const datetime now)
 //+------------------------------------------------------------------+
 //| Restart recovery                                                 |
 //+------------------------------------------------------------------+
-// A setup that was armed before a restart / timeframe change / input edit
-// is rebuilt from the chart (the range is deterministic), the saved VV
-// factor, today's orders and today's deals. Otherwise the EA never opens a
-// fresh setup after the check time has passed.
-void RecoverOnInit(const datetime now)
+// Runs on the first tick after (re)initialisation, when server time and
+// trade history are fresh. A setup that was still active before a restart /
+// timeframe change / input edit is rebuilt from the chart (the range is
+// deterministic), the saved VV factor / spread / ATR / side flags, today's
+// deals and open positions, and the live pending orders. Otherwise the EA
+// never opens a fresh setup after the check time has passed.
+// Returns false when the chart history is not ready yet (try again next tick).
+bool RecoverState(const datetime now)
   {
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
    if(now >= checkServer)
-      g_lastDay = localDay;              // today's check time is behind us
+      g_lastDay = localDay;              // today's check time is behind us: no late fresh setup
 
    datetime day = SetupDayOf(now);        // the setup whose window could still be open
-   if((datetime)GVGet("ARMED_DAY", 0) != day || now >= WindowEndFor(day))
+   if((datetime)GVGet("A_DAY", 0) != day || GVGet("A_ACT", 0) < 0.5 || now >= WindowEndFor(day))
      {
       if(now >= checkServer)
          g_s.status = "started after check time - next setup tomorrow";
-      return;
+      return true;
      }
 
    datetime check = CheckServerFor(day);
@@ -1939,39 +1998,76 @@ void RecoverOnInit(const datetime now)
    bool transient;
    if(!MeasureRange(check, top, bottom, firstBar, lastBar, why, transient))
      {
+      if(transient)
+        {
+         g_s.status = "resuming: waiting for chart history";
+         return false;
+        }
       Log("Could not rebuild today's range after restart: " + why, true);
-      return;
+      return true;
      }
-   double atr = 0;
-   ReadATR(g_hATR, atr);
-   g_vv      = GVGet("ARMED_VV", 1.0);
+   double atr = GVGet("A_ATR", 0.0);
+   if(atr <= 0 && !ReadATR(g_hATR, atr))
+     {
+      g_s.status = "resuming: waiting for ATR";
+      return false;
+     }
+   g_vv      = GVGet("A_VV", 1.0);
    g_vvReady = true;
 
    ResetSetup();
    ArmSetup(day, top, bottom, firstBar, lastBar, atr, true);
-   double savedSpread = GVGet("ARMED_SPREAD", -1.0);
+   double savedSpread = GVGet("A_SPR", -1.0);
    if(InpSpreadAdjust && savedSpread >= 0)
      {
       g_s.spread    = savedSpread;
       g_s.buy.entry = NormPrice(top + Pips(InpBuyBufferPips) + ((InpEntryMode == GRB_ENTRY_PENDING) ? savedSpread : 0.0));
      }
 
-   // sides already filled today (deals of this EA since the check time)
-   if(HistorySelect(check, now + 60))
+   // side flags saved by the running EA (finished / filled)
+   int mask = (int)GVGet("A_SIDES", 0);
+   if((mask & 1) != 0)
+      g_s.buy.done = true;
+   if((mask & 2) != 0)
+      g_s.sell.done = true;
+   if((mask & 4) != 0)
+      MarkFilled(true);
+   if((mask & 8) != 0)
+      MarkFilled(false);
+
+   // fills that happened while the EA was not running: entry deals since the check time ...
+   if(HistorySelect(check, now + 86400))
      {
       for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
         {
          ulong d = HistoryDealGetTicket(i);
          if(d == 0 || HistoryDealGetString(d, DEAL_SYMBOL) != _Symbol || (ulong)HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic)
             continue;
-         if((ENUM_DEAL_ENTRY)HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(d, DEAL_ENTRY);
+         ulong order = (ulong)HistoryDealGetInteger(d, DEAL_ORDER);
+         ENUM_ORDER_TYPE otype = (ENUM_ORDER_TYPE)HistoryOrderGetInteger(order, ORDER_TYPE);
+         // a stop order fill is an entry even when it nets against a position (netting accounts)
+         bool isEntry = (entry == DEAL_ENTRY_IN) || otype == ORDER_TYPE_BUY_STOP || otype == ORDER_TYPE_SELL_STOP;
+         if(!isEntry)
             continue;
          ENUM_DEAL_TYPE dt = (ENUM_DEAL_TYPE)HistoryDealGetInteger(d, DEAL_TYPE);
-         if(dt == DEAL_TYPE_BUY)
+         if(dt == DEAL_TYPE_BUY && !g_s.buy.filled)
             MarkFilled(true);
-         if(dt == DEAL_TYPE_SELL)
+         if(dt == DEAL_TYPE_SELL && !g_s.sell.filled)
             MarkFilled(false);
         }
+     }
+   // ... and our positions opened since the check time (in case history is still loading)
+   ulong tk;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(!SelectOurPosition(i, tk) || (datetime)PositionGetInteger(POSITION_TIME) < check)
+         continue;
+      bool isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+      if(isBuy && !g_s.buy.filled)
+         MarkFilled(true);
+      if(!isBuy && !g_s.sell.filled)
+         MarkFilled(false);
      }
    // re-attach to today's pending orders
    if(!g_s.buy.done)
@@ -1987,14 +2083,18 @@ void RecoverOnInit(const datetime now)
          g_s.sell.entry = OrderGetDouble(ORDER_PRICE_OPEN);
      }
    // close mode: candles that closed while the EA was off are not traded late
-   g_s.lastBar0 = iTime(_Symbol, InpRangeTF, 0);
-   g_s.lastEval = (g_s.lastBar0 > 0) ? g_s.lastBar0 - PeriodSeconds(InpRangeTF) : lastBar;
+   int tf = PeriodSeconds(InpRangeTF);
+   g_s.lastBar0 = 0;
+   g_s.lastEval = MathMax(lastBar, (datetime)((now - now % tf) - tf));
    if(g_s.buy.done && g_s.sell.done)
       Deactivate();
+   else
+      SaveSides();
    Log(StringFormat("Resumed today's setup: range %s - %s, buy %s (stop %I64u), sell %s (stop %I64u)",
                     DoubleToString(bottom, _Digits), DoubleToString(top, _Digits),
                     g_s.buy.filled ? "filled" : (g_s.buy.done ? "done" : "open"), g_s.buy.ticket,
                     g_s.sell.filled ? "filled" : (g_s.sell.done ? "done" : "open"), g_s.sell.ticket), true);
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -2021,7 +2121,7 @@ int OnInit()
    g_optimizing = (bool)MQLInfoInteger(MQL_OPTIMIZATION);
    g_pip        = DetectPip();
    g_prefix     = StringFormat("GRB_%I64u_", InpMagic);
-   g_gv         = StringFormat("GRB_%I64u_%s_", InpMagic, _Symbol);
+   g_gv         = StringFormat("GRB_%I64u_%I64d_%s_", InpMagic, AccountInfoInteger(ACCOUNT_LOGIN), _Symbol);
 
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetDeviationInPoints(InpSlippagePoints);
@@ -2054,12 +2154,11 @@ int OnInit()
    g_nextCleanupTry   = 0;
    g_noSpecifiedExpiry = false;
    g_liveOffsetValid  = false;
+   g_killDay          = (datetime)GVGet("KILL", 0);
+   g_needRecover      = true;   // state is rebuilt on the first tick (server time / history are fresh then)
    UpdateLiveOffset();
    datetime now = TimeCurrent();
-   LoadGuard(now);
    UpdateVV();
-   RecoverOnInit(now);
-   CleanupRiskRecords();
 
    Log(StringFormat("Started: pip %s, check %02d:%02d %s, range %d x %s, %s entries", DoubleToString(g_pip, _Digits),
                     InpCheckHour, InpCheckMinute, TZName(), InpRangeCandles, EnumToString(InpRangeTF),
@@ -2086,6 +2185,18 @@ void OnTick()
   {
    datetime now = TimeCurrent();
    UpdateLiveOffset();
+   if(g_needRecover)
+     {
+      LoadGuard(now);
+      CleanupRiskRecords();
+      if(!RecoverState(now))
+        {
+         Housekeeping(now);
+         UpdatePanel(now);
+         return;   // chart history not ready yet
+        }
+      g_needRecover = false;
+     }
    if(!g_vvReady)
       UpdateVV();
    DailyGuard(now);
