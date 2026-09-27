@@ -1,0 +1,113 @@
+# Gold Range Breakout EA (MT5)
+
+อีเอ **Range Breakout** สำหรับทองคำ (XAUUSD) บน MetaTrader 5 สร้างตามแนวทาง "Range Breakout"
+ในคู่มือ *Ultimate Breakout System V7.0* (หัวข้อ 12–14 และส่วนการจัดการออเดอร์)
+
+> ⚠️ ค่าเริ่มต้นเป็นแค่จุดตั้งต้นสำหรับ optimize — **ยังไม่ใช่ set ที่ผ่านการทดสอบ** ต้อง backtest / out-of-sample /
+> demo ตามขั้นตอนด้านล่างก่อนใช้เงินจริงเสมอ
+
+---
+
+## หลักการทำงาน
+
+1. **วันละครั้ง** ณ เวลาเช็ก (ค่าเริ่มต้น **09:30 เวลานิวยอร์ก** = เปิดตลาดหุ้น NY) อีเอวัดกรอบราคาของ
+   แท่งเทียน N แท่งก่อนหน้า (ค่าเริ่มต้น M15 × 12 แท่ง = 3 ชั่วโมง 06:30–09:30 NY)
+2. **กรองกรอบ**: ถ้ากรอบสูงเกิน `Max range height (x ATR)` (ATR H1) แปลว่าช่วงนั้นตลาดไม่ได้ "สะสมแรง"
+   → ข้ามวันนั้น (กล่องสีเทาบนกราฟ)
+3. **เข้าออเดอร์** เมื่อราคาหลุดกรอบ
+   - `Pending` — วาง Buy Stop เหนือกรอบ + Sell Stop ใต้กรอบ (ได้ราคาแน่นอน แต่โดนไส้หลอกได้)
+   - `Market on close` — รอแท่ง M15 ปิดนอกกรอบแล้วค่อยเข้า (กรองไส้ แต่ได้ราคาช้ากว่า)
+   - **OCO**: ฝั่งหนึ่งติดแล้วลบอีกฝั่งทิ้ง
+   - **Entry window** (ค่าเริ่มต้น 240 นาที): เลย 13:30 NY แล้วยังไม่หลุด → ยกเลิก
+4. **SL/TP**: ค่าเริ่มต้น SL = อีกฝั่งของกรอบ + 10 pips, TP = 2R
+5. **Break-even / Trailing** ตั้งเป็น pips หรือเป็น R ก็ได้ (ค่าเริ่มต้นย้าย SL ไปทุนเมื่อกำไร 1R)
+6. **ปิดตามเวลา** 15:55 NY (ก่อนตลาดหุ้นปิด) ทั้งกำไร/ขาดทุน
+
+### เวลา & DST (สำคัญมาก)
+
+เวลาเช็ก/เวลาปิดคิดตาม **timezone ที่เลือก** (Server / New York / London) และตาม DST ของเมืองนั้นอัตโนมัติ
+ใน Strategy Tester MT5 ไม่รู้ offset ของโบรก → ต้องตั้ง:
+
+| พารามิเตอร์ | โบรกทั่วไป (IC Markets, Exness, Pepperstone ฯลฯ) |
+|---|---|
+| Broker GMT offset in winter | `2` |
+| Broker GMT offset in summer | `3` |
+| Broker DST schedule | `Broker switches with US DST` |
+
+(ตอนรันจริง อีเอตรวจ offset เองจาก `TimeTradeServer() - TimeGMT()`)
+ผลคือ 09:30 NY = **16:30 เวลาเซิร์ฟเวอร์** ตลอดทั้งปี (ทั้งคู่เปลี่ยน DST วันเดียวกัน) — แผงข้อมูลบนกราฟแสดงเวลาที่แปลงแล้วให้ตรวจสอบได้
+
+---
+
+## ติดตั้ง
+
+1. MT5 → **File → Open Data Folder** → `MQL5/Experts/` → คัดลอก `GoldRangeBreakout.mq5`
+2. เปิด MetaEditor → เปิดไฟล์ → **Compile** (F7) — ต้องได้ `0 errors`
+3. ลากอีเอลงกราฟ XAUUSD (timeframe ใดก็ได้ อีเอใช้ TF ของตัวเอง) → เปิด **Algo Trading**
+4. set ตัวอย่างอยู่ใน `ea/sets/` — กด **Load** ในหน้า Inputs
+
+**pip ของทอง** = 0.1 ดอลลาร์ (ค่า `Pip size = 0` → auto: ชื่อ symbol มี XAU/GOLD = 0.1)
+ดังนั้น SL 30 pips = $3 ต่อออนซ์ = $30 ต่อ 0.1 lot (contract 100 oz)
+
+---
+
+## พารามิเตอร์หลัก (ตัวที่ควร optimize ก่อน)
+
+| กลุ่ม | พารามิเตอร์ | ค่าเริ่ม | ช่วง optimize แนะนำ | หมายเหตุ |
+|---|---|---|---|---|
+| Range | Timeframe to monitor | M15 | M5 / M15 / M30 | |
+| Range | Candles measured | 12 | 6–32 | M15×12 = 3 ชม. |
+| Range | Max range height (x ATR) | 1.5 | 0.8–3.0 step 0.1 | **ตัวหลัก** — ถ้าไม่เคยเห็น "range rejected" ใน log แปลว่าตั้งสูงเกิน |
+| Range | ATR timeframe / period | H1 / 14 | H1–H4 / 10–30 | |
+| Time | Hour / Minute | 9 / 30 NY | 8:20, 9:30, 10:00 NY / 8:00 London | 8:20 NY = COMEX gold open |
+| Entry | Buffer pips (buy/sell) | 5 / 5 | 0–30 step 5 | |
+| Entry | Entry mode | Pending | ทั้ง 2 แบบ | |
+| Entry | Entry window (min) | 240 | 60–360 step 30 | |
+| Exit | SL mode | Opposite side | ทั้ง 3 แบบ | |
+| Exit | TP (R) | 2.0 | 1.0–4.0 step 0.25 | |
+| Exit | Close hour/minute | 15:55 NY | 12–16 | `-1` = ไม่ปิดตามเวลา |
+| Mgmt | BE start (R) | 1.0 | 0 / 0.5–2.0 | ทำทีหลังได้ |
+
+เมื่อใช้ SL แบบ "อีกฝั่งของกรอบ" ระยะ SL เปลี่ยนทุกวัน → **ควรใช้ Lot แบบ Risk %**
+เพื่อให้ขาดทุนต่อไม้เท่ากัน (คู่มือหัวข้อ 14) — แต่ระหว่าง optimize ใช้ **Fixed lot** เพื่อเทียบผลได้ตรง ๆ
+
+### Variable Values (สำคัญกับทอง)
+
+ทองราคาขึ้นทุกปี ระยะ 50 pips ในปี 2015 (ทอง $1,100) กับปี 2025 (ทอง $3,500) ไม่เท่ากัน
+ตั้ง `Default ATR value` = ATR D1(30) ของช่วงที่ optimize (เช่น `20` ถ้า optimize 2013–2023)
+แล้วทุกระยะที่เป็น pips จะคูณด้วย `ATR ปัจจุบัน / ค่านี้` อัตโนมัติ (หรือใช้ `Default price` แทน)
+ถ้าใช้ Fixed lot ให้เปิด `Adjust manual lot size to Variable Values` ด้วย เพื่อให้ความเสี่ยงเป็นเงินคงที่
+
+---
+
+## ขั้นตอนสร้างกลยุทธ์ (ตามคู่มือ ปรับสำหรับทอง)
+
+1. **ตั้ง Strategy Tester**: Symbol XAUUSD, ช่วง 2013-01-01 → 2023-12-31 (in-sample),
+   Modelling **1 minute OHLC**, Deposit 100,000, **Fixed lot 0.1**, Optimization **Fast genetic**,
+   เกณฑ์ **Custom max** (ใช้ `OnTester`: Recovery Factor² × √trades × ln(1+Expected payoff))
+   และตั้ง `Minimum number of trades` ≥ 100
+2. **Optimize ทางเข้าก่อน** (Range + Time + Entry) โดยล็อก exit ไว้ → แล้วค่อย optimize exit (SL/TP/BE)
+   อย่า optimize ทุกตัวพร้อมกัน
+3. เลือกผลที่กราฟ **โตเป็นเส้นตรง** และอยู่บน **"ที่ราบ"** (ค่ารอบข้างก็กำไร) ไม่ใช่ยอดแหลม
+4. **Out-of-sample #1**: 2024–2025 ด้วย **Every tick based on real ticks** เทียบกับ 1M OHLC → รูปกราฟต้องคล้ายกัน
+5. **Out-of-sample #2**: 2005–2012 ด้วย 1M OHLC → ผลต้องไปทางเดียวกับช่วง optimize
+6. **Stress test**: เปลี่ยนเวลาเช็ก ±30 นาที, เปลี่ยน TF, ลอง XAGUSD — ไม่ควรพังยับ
+7. คำนวณ **Max DD ที่ 0.01 lot** (DD ที่ 0.1 lot ÷ 10) → กำหนดทุนขั้นต่ำ เช่น DD $200 @0.01 → ทุน $2,000 ต่อ 0.01 lot ถ้ารับ DD 10%
+8. รัน **demo** อย่างน้อย 2–4 สัปดาห์ แล้วเทียบกับ backtest ช่วงเดียวกัน
+
+---
+
+## ตัวกรอง / ความปลอดภัย
+
+- **Weekdays** เปิด/ปิดรายวัน, **Skip NFP day** (ศุกร์แรกของเดือน — ข่าว 08:30 NY ก่อนเวลาเช็ก)
+- **News filter** (MQL5 Calendar, ข่าว USD high impact) — *ใช้ได้เฉพาะรันจริง* ใน Tester ไม่มีข้อมูลปฏิทิน
+- **Max spread** (points) — ไม่วาง/ไม่เข้าออเดอร์ตอนสเปรดถ่าง
+- **Daily loss limit (%)** — ขาดทุนเกิน % ของ equity ต้นวัน → ปิดทุกออเดอร์ของอีเอและหยุดถึงวันใหม่
+- **Magic number** ต้องไม่ซ้ำกันระหว่างกราฟ/set (ข้อผิดพลาดที่พบบ่อยที่สุดตามคู่มือ)
+- เปิดอีเอหลังเวลาเช็กแล้ว → วันนั้นจะไม่เปิด setup ใหม่ (แต่ยังดูแลออเดอร์ที่ค้างอยู่และปิดตามเวลา)
+
+## ข้อจำกัด
+
+- เทรดเฉพาะ symbol ของกราฟที่วางอีเอ (ไม่มี multi-set / AutoLoad แบบ UBS)
+- วัน NFP ใช้กฎ "ศุกร์แรกของเดือน" — บางเดือนที่ BLS เลื่อนวันจะไม่ตรง
+- ไม่มี grid / martingale (ตั้งใจ)
