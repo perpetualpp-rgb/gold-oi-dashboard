@@ -5,9 +5,9 @@
 //| Range Breakout EA for XAUUSD (works on any symbol).              |
 //| Once per day, at a check time in a chosen timezone (New York /   |
 //| London follow their own DST), it measures the range formed by    |
-//| the N candles just before that moment. If the range is tight     |
-//| enough (x ATR), it trades the break with pending stop orders or  |
-//| a market entry on a candle close outside the range.              |
+//| the N candles that closed before that moment. If the range is    |
+//| tight enough (x ATR), it trades the break with pending stop      |
+//| orders or a market entry on a candle close outside the range.    |
 //|                                                                  |
 //| - SL: fixed / beyond the opposite side of the range / x ATR      |
 //| - TP: fixed / multiple of the SL distance (R)                    |
@@ -19,9 +19,13 @@
 //| - Filters: weekdays, NFP day, spread, daily loss limit,          |
 //|   MQL5 calendar high-impact USD news (live only)                 |
 //| - OnTester custom score: min trades / recovery factor / payoff   |
+//|                                                                  |
+//| Time exit, window expiry and OCO clean-up are derived from each  |
+//| order's / position's own open time, so they keep working after  |
+//| a restart and are retried until they succeed.                    |
 //+------------------------------------------------------------------+
 #property copyright "gold-oi-dashboard"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Range Breakout for XAUUSD: daily range before a session open, DST-aware check time, ATR range filter, pending or close-confirmed entries, ATR-scaled distances, risk-based lots."
 
 #include <Trade/Trade.mqh>
@@ -111,7 +115,9 @@ input group "=== Entry ==="
 input ENUM_GRB_ENTRY      InpEntryMode        = GRB_ENTRY_PENDING; // How to enter the breakout
 input double              InpBuyBufferPips    = 5;                 // Extra pips above range TOP for buy
 input double              InpSellBufferPips   = 5;                 // Extra pips below range BOTTOM for sell
+input bool                InpSpreadAdjust     = true;              // Add the spread to Ask-side levels (buy stop, sell SL)
 input int                 InpEntryWindowMin   = 240;               // Entry window after check time (minutes), 0 = until close time / end of day
+input bool                InpStopAtDailyBreak = true;              // Pending orders never live past 16:55 New York (daily break / weekend)
 input bool                InpOCO              = true;              // Delete opposite side once one fills (OCO)
 input double              InpMaxChasePips     = 10;                // Max pips to chase at market if the level was already crossed, 0 = never
 input int                 InpMaxSpreadPoints  = 0;                 // Max spread to place/enter (points), 0 = off
@@ -129,6 +135,7 @@ input double              InpTPPips           = 300;               // Fixed TP d
 input double              InpTPRR             = 2.0;               // TP as a multiple of the SL distance [R]
 input int                 InpCloseHour        = 15;                // Close trades at this hour (same timezone), -1 = never
 input int                 InpCloseMinute      = 55;                // Close trades at this minute
+input bool                InpCloseBeforeWeekend = true;            // A time exit that would fall on the weekend closes Friday 16:55 New York
 
 input group "=== Break-even / trailing ==="
 input ENUM_GRB_UNITS      InpMgmtUnits        = GRB_UNITS_R;       // Units for BE start / trailing values below
@@ -159,7 +166,7 @@ input bool                InpTradeTuesday     = true;              // Trade Tues
 input bool                InpTradeWednesday   = true;              // Trade Wednesday
 input bool                InpTradeThursday    = true;              // Trade Thursday
 input bool                InpTradeFriday      = true;              // Trade Friday
-input bool                InpSkipNFPDay       = true;              // Skip NFP day (first Friday of the month, NY date)
+input bool                InpSkipNFPDay       = true;              // Skip NFP release day (BLS schedule rule, NY date)
 input bool                InpNewsFilter       = false;             // High-impact USD news filter (MQL5 calendar, live only)
 input int                 InpNewsMinBefore    = 60;                // News: minutes before the event
 input int                 InpNewsMinAfter     = 60;                // News: minutes after the event
@@ -179,12 +186,24 @@ input color               InpColDown          = clrTomato;         // Colour: br
 input color               InpColRejected      = clrSilver;         // Colour: range rejected
 input bool                InpVerbose          = false;             // Detailed logging
 
+//--- constants
+#define GRB_LATE_SECONDS   (15 * 60)   // a setup is only built if the first tick comes within this after the check time
+#define GRB_RETRY_SECONDS  5           // pause between retries of a failed close / delete
+#define GRB_MAX_FAILS      3           // failed order attempts before a side is given up
+
+enum ENUM_GRB_BUILD
+  {
+   GRB_BUILD_DONE  = 0,  // setup armed, or the day is definitively skipped
+   GRB_BUILD_RETRY = 1   // transient problem (data / ATR not ready): try again on the next tick
+  };
+
 //--- state
 struct GRBSide
   {
    bool              enabled;   // side allowed for today's setup
    bool              done;      // nothing more to do for this side
    bool              filled;    // this side became a position
+   bool              signal;    // close-confirmed mode: breakout candle seen, market entry pending
    ulong             ticket;    // pending order ticket (0 = not placed)
    double            entry;     // trigger price (pending price / close threshold)
    int               fails;     // failed order attempts
@@ -193,13 +212,17 @@ struct GRBSide
 struct GRBSetup
   {
    bool              active;        // entries still possible
+   bool              killPendings;  // delete every pending order of this setup (OCO / window over / news)
    datetime          localDay;      // local (timezone) date of the setup
    datetime          checkServer;   // check time, server clock
    datetime          windowEnd;     // end of entry window, server clock
    datetime          firstBar;      // open time of the first measured candle
+   datetime          lastEval;      // close mode: open time of the last candle evaluated
+   datetime          lastBar0;      // close mode: last seen forming candle
    double            top;
    double            bottom;
    double            atr;           // range ATR at check time
+   double            spread;        // spread (price) used for the Ask-side adjustment
    GRBSide           buy;
    GRBSide           sell;
    string            status;        // short text for the panel
@@ -209,13 +232,12 @@ CTrade    g_trade;
 GRBSetup  g_s;
 double    g_pip              = 0.0;
 double    g_vv               = 1.0;
+bool      g_vvReady          = false;
 int       g_hATR             = INVALID_HANDLE;
 int       g_hVVATR           = INVALID_HANDLE;
 bool      g_optimizing       = false;
 bool      g_tester           = false;
 datetime  g_lastDay          = 0;     // last local day whose check time was processed
-datetime  g_closeServer      = 0;     // pending time exit (server clock), 0 = none
-datetime  g_lastBar          = 0;     // last seen RangeTF bar (close-confirmed mode)
 datetime  g_lastNewsCheck    = 0;
 int       g_liveOffset       = 0;
 bool      g_liveOffsetValid  = false;
@@ -224,10 +246,10 @@ datetime  g_guardDay         = 0;
 double    g_guardEquity      = 0.0;
 bool      g_halted           = false;
 datetime  g_lastPanel        = 0;
-string    g_prefix           = "";
-
-ulong     g_riskIds[];               // position id -> initial SL distance cache
-double    g_riskVals[];
+datetime  g_nextCleanupTry   = 0;
+bool      g_noSpecifiedExpiry = false;
+string    g_prefix           = "";    // chart objects
+string    g_gv               = "";    // terminal global variables
 
 //+------------------------------------------------------------------+
 //| Logging                                                          |
@@ -241,6 +263,22 @@ void Log(const string msg, const bool important = false)
   }
 
 //+------------------------------------------------------------------+
+//| Terminal global variables (survive restarts)                     |
+//+------------------------------------------------------------------+
+void GVSet(const string key, const double value)
+  {
+   GlobalVariableSet(g_gv + key, value);
+  }
+
+double GVGet(const string key, const double fallback = 0.0)
+  {
+   double v;
+   if(GlobalVariableGet(g_gv + key, v))
+      return v;
+   return fallback;
+  }
+
+//+------------------------------------------------------------------+
 //| Calendar / DST helpers                                           |
 //+------------------------------------------------------------------+
 int DaysInMonth(const int year, const int month)
@@ -251,16 +289,21 @@ int DaysInMonth(const int year, const int month)
    return days[month - 1];
   }
 
-// n-th Sunday of a month at 00:00 (n >= 1), or the last Sunday when n == 0
-datetime NthSunday(const int year, const int month, const int n)
+datetime MakeDate(const int year, const int month, const int day)
   {
    MqlDateTime t;
    ZeroMemory(t);
    t.year = year;
    t.mon  = month;
-   t.day  = 1;
+   t.day  = day;
+   return StructToTime(t);
+  }
+
+// n-th Sunday of a month at 00:00 (n >= 1), or the last Sunday when n == 0
+datetime NthSunday(const int year, const int month, const int n)
+  {
    MqlDateTime f;
-   TimeToStruct(StructToTime(t), f);
+   TimeToStruct(MakeDate(year, month, 1), f);
    int firstSunday = 1 + (7 - f.day_of_week) % 7;
    int day = firstSunday;
    if(n > 0)
@@ -271,8 +314,7 @@ datetime NthSunday(const int year, const int month, const int n)
       while(day + 7 <= dim)
          day += 7;
      }
-   t.day = day;
-   return StructToTime(t);
+   return MakeDate(year, month, day);
   }
 
 // US DST, evaluated in UTC. 2007+: 2nd Sun Mar 02:00 EST -> 1st Sun Nov 02:00 EDT.
@@ -332,6 +374,18 @@ datetime UTCToServer(const datetime utc)
 int NYOffsetAtUTC(const datetime utc)
   {
    return IsUSDST(utc) ? -4 : -5;
+  }
+
+datetime ServerToNY(const datetime server)
+  {
+   datetime utc = ServerToUTC(server);
+   return utc + NYOffsetAtUTC(utc) * 3600;
+  }
+
+datetime NYToServer(const datetime ny)
+  {
+   datetime guess = ny + 5 * 3600;
+   return UTCToServer(ny - NYOffsetAtUTC(guess) * 3600);
   }
 
 int LocalOffsetAtUTC(const datetime utc)
@@ -451,26 +505,32 @@ bool ReadATR(const int handle, double &value)
    return value > 0;
   }
 
+// Variable Values factor. g_vvReady stays false while the scaling ATR is not
+// calculated yet, so callers can wait instead of trading unscaled distances.
 void UpdateVV()
   {
-   g_vv = 1.0;
    if(InpVVDefaultATR > 0)
      {
       double atr;
       if(ReadATR(g_hVVATR, atr))
-         g_vv = atr / InpVVDefaultATR;
-      else
-         Log("Variable Values: ATR not ready, factor 1.0 used");
-     }
-   else
-      if(InpVVDefaultPrice > 0)
         {
-         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-         if(bid > 0)
-            g_vv = bid / InpVVDefaultPrice;
+         g_vv      = atr / InpVVDefaultATR;
+         g_vvReady = true;
         }
-   if(g_vv <= 0)
-      g_vv = 1.0;
+      else
+         g_vvReady = false;
+      return;
+     }
+   g_vv      = 1.0;
+   g_vvReady = true;
+   if(InpVVDefaultPrice > 0)
+     {
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      if(bid > 0)
+         g_vv = bid / InpVVDefaultPrice;
+      else
+         g_vvReady = false;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -504,50 +564,29 @@ int CountOurPositions()
    return n;
   }
 
-void CloseAllPositions(const string why)
+// our buy stop / sell stop placed at or after `since` (0 if none)
+ulong FindOurPending(const bool isBuy, const datetime since)
   {
    ulong tk;
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      if(!SelectOurPosition(i, tk))
-         continue;
-      if(g_trade.PositionClose(tk, InpSlippagePoints))
-         Log(StringFormat("Closed position %I64u (%s)", tk, why), true);
-      else
-         Log(StringFormat("Close position %I64u failed: %u %s", tk, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()), true);
-     }
-  }
-
-void DeleteAllPendings(const string why)
-  {
-   ulong tk;
+   ENUM_ORDER_TYPE want = isBuy ? ORDER_TYPE_BUY_STOP : ORDER_TYPE_SELL_STOP;
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!SelectOurOrder(i, tk))
          continue;
-      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP)
-         continue;
-      if(g_trade.OrderDelete(tk))
-         Log(StringFormat("Deleted pending %I64u (%s)", tk, why));
-      else
-         Log(StringFormat("Delete pending %I64u failed: %u %s", tk, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()), true);
+      if((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE) == want && (datetime)OrderGetInteger(ORDER_TIME_SETUP) >= since)
+         return tk;
      }
-   if(g_s.buy.ticket > 0 && !g_s.buy.filled)
-     {
-      g_s.buy.ticket = 0;
-      g_s.buy.done   = true;
-     }
-   if(g_s.sell.ticket > 0 && !g_s.sell.filled)
-     {
-      g_s.sell.ticket = 0;
-      g_s.sell.done   = true;
-     }
+   return 0;
   }
 
 //+------------------------------------------------------------------+
 //| Range box drawing                                                |
 //+------------------------------------------------------------------+
+bool DrawingEnabled()
+  {
+   return InpDrawBoxes && !g_optimizing && !(g_tester && !MQLInfoInteger(MQL_VISUAL_MODE));
+  }
+
 string BoxName()
   {
    return g_prefix + "box_" + TimeToString(g_s.localDay, TIME_DATE);
@@ -555,7 +594,7 @@ string BoxName()
 
 void DrawBox(const datetime t1, const datetime t2, const double top, const double bottom, const color col, const string text)
   {
-   if(!InpDrawBoxes || g_optimizing || (g_tester && !MQLInfoInteger(MQL_VISUAL_MODE)))
+   if(!DrawingEnabled())
       return;
    string name = BoxName();
    if(ObjectFind(0, name) < 0)
@@ -590,7 +629,7 @@ void DrawBox(const datetime t1, const datetime t2, const double top, const doubl
 
 void RecolorBox(const color col)
   {
-   if(!InpDrawBoxes || g_optimizing || (g_tester && !MQLInfoInteger(MQL_VISUAL_MODE)))
+   if(!DrawingEnabled())
       return;
    string name = BoxName();
    if(ObjectFind(0, name) >= 0)
@@ -602,11 +641,41 @@ void RecolorBox(const color col)
 //+------------------------------------------------------------------+
 //| Schedule helpers                                                 |
 //+------------------------------------------------------------------+
+int CheckSeconds()
+  {
+   return InpCheckHour * 3600 + InpCheckMinute * 60;
+  }
+
+datetime CheckServerFor(const datetime localDay)
+  {
+   return LocalToServer(localDay + CheckSeconds());
+  }
+
 void TodayCheck(const datetime now, datetime &localDay, datetime &checkServer)
   {
    datetime localNow = ServerToLocal(now);
    localDay    = DayStart(localNow);
-   checkServer = LocalToServer(localDay + InpCheckHour * 3600 + InpCheckMinute * 60);
+   checkServer = CheckServerFor(localDay);
+  }
+
+// local day of the most recent check time at or before t: the setup an order / position belongs to
+datetime SetupDayOf(const datetime serverTime)
+  {
+   datetime local = ServerToLocal(serverTime);
+   datetime day   = DayStart(local);
+   if(local - day < CheckSeconds())
+      day -= 86400;
+   return day;
+  }
+
+// next 16:55 New York after t (gold's daily break starts 17:00 NY; Friday's is the weekend close)
+datetime NextNYBreak(const datetime serverTime)
+  {
+   datetime ny  = ServerToNY(serverTime);
+   datetime brk = DayStart(ny) + 16 * 3600 + 55 * 60;
+   if(brk <= ny)
+      brk += 86400;
+   return NYToServer(brk);
   }
 
 // time exit for the setup of localDay, server clock (0 = none)
@@ -614,15 +683,39 @@ datetime CloseTimeFor(const datetime localDay)
   {
    if(InpCloseHour < 0)
       return 0;
-   datetime checkLocal = localDay + InpCheckHour * 3600 + InpCheckMinute * 60;
+   datetime checkLocal = localDay + CheckSeconds();
    datetime closeLocal = localDay + InpCloseHour * 3600 + InpCloseMinute * 60;
    if(closeLocal <= checkLocal)
       closeLocal += 86400;
-   return LocalToServer(closeLocal);
+   datetime closeServer = LocalToServer(closeLocal);
+   if(InpCloseBeforeWeekend)
+     {
+      // a close on Saturday/Sunday (or after Friday's 17:00 NY close) is pulled back to Friday 16:55 NY
+      datetime ny = ServerToNY(closeServer);
+      MqlDateTime d;
+      TimeToStruct(ny, d);
+      int tod = (int)(ny - DayStart(ny));
+      int back = -1;
+      if(d.day_of_week == 5 && tod > 16 * 3600 + 55 * 60)
+         back = 0;
+      else
+         if(d.day_of_week == 6)
+            back = 1;
+         else
+            if(d.day_of_week == 0)
+               back = 2;
+      if(back >= 0)
+        {
+         datetime fri = DayStart(ny) - back * 86400 + 16 * 3600 + 55 * 60;
+         closeServer = NYToServer(fri);
+        }
+     }
+   return closeServer;
   }
 
-datetime WindowEndFor(const datetime localDay, const datetime checkServer)
+datetime WindowEndFor(const datetime localDay)
   {
+   datetime checkServer = CheckServerFor(localDay);
    datetime closeServer = CloseTimeFor(localDay);
    datetime end;
    if(InpEntryWindowMin > 0)
@@ -631,7 +724,41 @@ datetime WindowEndFor(const datetime localDay, const datetime checkServer)
       end = (closeServer > 0) ? closeServer : LocalToServer(localDay + 86400);
    if(closeServer > 0 && end > closeServer)
       end = closeServer;
+   if(InpStopAtDailyBreak)
+     {
+      datetime brk = NextNYBreak(checkServer);
+      if(end > brk)
+         end = brk;
+     }
    return end;
+  }
+
+// NFP release date for a reference month (BLS rule: the third Friday after the
+// week that contains the 12th). Exceptions: 4 July falls back to Thursday 3 July;
+// December's report moves a week later when the rule lands on 1-3 January.
+datetime NFPReleaseDate(const int year, const int month)
+  {
+   datetime d12 = MakeDate(year, month, 12);
+   MqlDateTime s;
+   TimeToStruct(d12, s);
+   datetime saturday = d12 + (6 - s.day_of_week) * 86400;
+   datetime release  = saturday + 20 * 86400;
+   MqlDateTime r;
+   TimeToStruct(release, r);
+   if(r.mon == 7 && r.day == 4)
+      release -= 86400;
+   if(month == 12 && r.day <= 3)
+      release += 7 * 86400;
+   return release;
+  }
+
+bool IsNFPDay(const datetime nyDate)
+  {
+   MqlDateTime n;
+   TimeToStruct(nyDate, n);
+   int refYear  = (n.mon == 1) ? n.year - 1 : n.year;
+   int refMonth = (n.mon == 1) ? 12 : n.mon - 1;
+   return DayStart(nyDate) == NFPReleaseDate(refYear, refMonth);
   }
 
 bool DayAllowed(const datetime localDay, const datetime checkServer, string &why)
@@ -664,17 +791,10 @@ bool DayAllowed(const datetime localDay, const datetime checkServer, string &why
       why = "weekday disabled";
       return false;
      }
-   if(InpSkipNFPDay)
+   if(InpSkipNFPDay && IsNFPDay(ServerToNY(checkServer)))
      {
-      datetime utc = ServerToUTC(checkServer);
-      datetime ny  = utc + NYOffsetAtUTC(utc) * 3600;
-      MqlDateTime n;
-      TimeToStruct(ny, n);
-      if(n.day_of_week == 5 && n.day <= 7)
-        {
-         why = "NFP day";
-         return false;
-        }
+      why = "NFP day";
+      return false;
      }
    return true;
   }
@@ -703,24 +823,31 @@ bool HighImpactNews(const datetime from, const datetime to)
 //+------------------------------------------------------------------+
 //| Range measurement                                                |
 //+------------------------------------------------------------------+
-bool MeasureRange(const datetime checkServer, double &top, double &bottom, datetime &firstBar, string &why)
+// Measures the InpRangeCandles candles that had CLOSED by the check time.
+// transient = true when the failure may go away on a later tick.
+bool MeasureRange(const datetime checkServer, double &top, double &bottom, datetime &firstBar, datetime &lastBar,
+                  string &why, bool &transient)
   {
+   transient = false;
    MqlRates r[];
    int want = InpRangeCandles;
-   int n = CopyRates(_Symbol, InpRangeTF, checkServer - 1, want, r);
+   int tf   = PeriodSeconds(InpRangeTF);
+   // a candle opening at or before (check - tf) has closed by the check time
+   ResetLastError();
+   int n = CopyRates(_Symbol, InpRangeTF, checkServer - tf, want, r);
    if(n < want)
      {
-      why = StringFormat("only %d of %d candles available", n, want);
+      why = StringFormat("only %d of %d candles available (error %d)", MathMax(n, 0), want, GetLastError());
+      transient = true;
       return false;
      }
-   int tf = PeriodSeconds(InpRangeTF);
    // r[0] is the oldest, r[n-1] the newest (array is not a series)
-   if(r[n - 1].time < checkServer - tf)
+   if(r[n - 1].time < checkServer - 2 * tf)
      {
       why = "no candle right before the check time (market closed?)";
       return false;
      }
-   if(r[0].time < checkServer - (datetime)(2 * want * tf))
+   if(r[0].time < checkServer - (datetime)((2 * want + 1) * tf))
      {
       why = "measured candles span a market gap";
       return false;
@@ -735,7 +862,13 @@ bool MeasureRange(const datetime checkServer, double &top, double &bottom, datet
       bottom = MathMin(bottom, lo);
      }
    firstBar = r[0].time;
-   return top > bottom;
+   lastBar  = r[n - 1].time;
+   if(top <= bottom)
+     {
+      why = "flat range";
+      return false;
+     }
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -751,7 +884,8 @@ bool ComputeStops(const bool isBuy, const double entry, double &sl, double &tp, 
          break;
       case GRB_SL_OPPOSITE:
         {
-         double level = isBuy ? g_s.bottom - Pips(InpSLBeyondPips) : g_s.top + Pips(InpSLBeyondPips);
+         // a sell's stop is hit by the Ask, so it sits a spread further above the top
+         double level = isBuy ? g_s.bottom - Pips(InpSLBeyondPips) : g_s.top + Pips(InpSLBeyondPips) + g_s.spread;
          slDist = isBuy ? entry - level : level - entry;
          break;
         }
@@ -854,13 +988,72 @@ double CalcLots(const bool isBuy, const double entry, const double sl)
   }
 
 //+------------------------------------------------------------------+
-//| Order placement                                                  |
+//| Initial risk (R) per position, kept in terminal global variables |
 //+------------------------------------------------------------------+
-string TradeComment()
+void RegisterRisk(const ulong positionId, const double slDist)
   {
-   return InpComment;
+   if(positionId > 0 && slDist > 0)
+      GVSet("R_" + (string)positionId, slDist);
   }
 
+double InitialRisk(const ulong positionId, const bool isBuy, const double openPrice, const double currentSL)
+  {
+   double risk = GVGet("R_" + (string)positionId, 0.0);
+   if(risk > 0)
+      return risk;
+   // fall back to the SL of the order that opened the position
+   if(HistorySelectByPosition(positionId))
+     {
+      datetime first = 0;
+      for(int i = HistoryOrdersTotal() - 1; i >= 0; i--)
+        {
+         ulong o = HistoryOrderGetTicket(i);
+         if(o == 0)
+            continue;
+         datetime t  = (datetime)HistoryOrderGetInteger(o, ORDER_TIME_SETUP);
+         double   sl = HistoryOrderGetDouble(o, ORDER_SL);
+         if(sl > 0 && (first == 0 || t < first))
+           {
+            first = t;
+            risk  = MathAbs(openPrice - sl);
+           }
+        }
+     }
+   // last resort: the current stop, but only while it is still on the losing side
+   if(risk <= 0 && currentSL > 0 && (isBuy ? currentSL < openPrice : currentSL > openPrice))
+      risk = MathAbs(openPrice - currentSL);
+   if(risk > 0)
+      RegisterRisk(positionId, risk);
+   return risk;
+  }
+
+// drop R records of positions that no longer exist
+void CleanupRiskRecords()
+  {
+   string pre = g_gv + "R_";
+   for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
+     {
+      string name = GlobalVariableName(i);
+      if(StringFind(name, pre) != 0)
+         continue;
+      ulong id = (ulong)StringToInteger(StringSubstr(name, StringLen(pre)));
+      bool open = false;
+      ulong tk;
+      for(int p = PositionsTotal() - 1; p >= 0 && !open; p--)
+         if(SelectOurPosition(p, tk) && (ulong)PositionGetInteger(POSITION_IDENTIFIER) == id)
+            open = true;
+      // a pending order's ticket becomes its position id: keep records of live pendings too
+      for(int o = OrdersTotal() - 1; o >= 0 && !open; o--)
+         if(OrderGetTicket(o) == id)
+            open = true;
+      if(!open)
+         GlobalVariableDel(name);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Order placement                                                  |
+//+------------------------------------------------------------------+
 bool RetcodeOK(const uint rc)
   {
    return rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_DONE_PARTIAL || rc == TRADE_RETCODE_PLACED;
@@ -874,78 +1067,84 @@ void GetSide(const bool isBuy, GRBSide &out)
       out = g_s.sell;
   }
 
-void RegisterRisk(const ulong positionId, const double slDist)
-  {
-   int n = ArraySize(g_riskIds);
-   for(int i = 0; i < n; i++)
-      if(g_riskIds[i] == positionId)
-        {
-         g_riskVals[i] = slDist;
-         return;
-        }
-   if(n >= 500)
-     {
-      ArrayRemove(g_riskIds, 0, 250);
-      ArrayRemove(g_riskVals, 0, 250);
-      n = ArraySize(g_riskIds);
-     }
-   ArrayResize(g_riskIds, n + 1);
-   ArrayResize(g_riskVals, n + 1);
-   g_riskIds[n]  = positionId;
-   g_riskVals[n] = slDist;
-  }
-
-bool MarketEntry(const bool isBuy, const string why)
+// 1 = entered, 0 = postponed (spread too wide), -1 = failed
+int MarketEntry(const bool isBuy, const string why)
   {
    if(!SpreadOK())
      {
       Log("Market entry postponed: spread too wide");
-      return false;
+      return 0;
      }
    double price = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double sl, tp, slDist;
    if(!ComputeStops(isBuy, price, sl, tp, slDist))
-      return false;
+      return -1;
    double lots = CalcLots(isBuy, price, sl);
    if(lots <= 0)
-      return false;
-   bool sent = isBuy ? g_trade.Buy(lots, _Symbol, price, sl, tp, TradeComment())
-                     : g_trade.Sell(lots, _Symbol, price, sl, tp, TradeComment());
+      return -1;
+   bool sent = isBuy ? g_trade.Buy(lots, _Symbol, price, sl, tp, InpComment)
+                     : g_trade.Sell(lots, _Symbol, price, sl, tp, InpComment);
    uint rc = g_trade.ResultRetcode();
    if(!sent || !RetcodeOK(rc))
      {
       Log(StringFormat("%s market entry failed: %u %s", isBuy ? "Buy" : "Sell", rc, g_trade.ResultRetcodeDescription()), true);
-      return false;
+      return -1;
      }
-   ulong order = g_trade.ResultOrder();
-   if(order > 0)
-      RegisterRisk(order, slDist);
+   RegisterRisk(g_trade.ResultOrder(), slDist);
    Log(StringFormat("%s %.2f lots at market %s (%s) SL %s TP %s", isBuy ? "BUY" : "SELL", lots,
                     DoubleToString(price, _Digits), why, DoubleToString(sl, _Digits), DoubleToString(tp, _Digits)), true);
-   return true;
+   return 1;
   }
 
-bool PlacePending(const bool isBuy)
+// 1 = placed (or adopted), 0 = try again later, -1 = failed
+int PlacePending(const bool isBuy)
   {
+   // an earlier request may have been placed although its reply was lost: adopt it instead of duplicating
+   ulong existing = FindOurPending(isBuy, g_s.checkServer);
+   if(existing > 0)
+     {
+      if(isBuy)
+         g_s.buy.ticket = existing;
+      else
+         g_s.sell.ticket = existing;
+      Log(StringFormat("Adopted existing %s stop %I64u", isBuy ? "buy" : "sell", existing), true);
+      return 1;
+     }
    GRBSide side;
    GetSide(isBuy, side);
    double sl, tp, slDist;
    if(!ComputeStops(isBuy, side.entry, sl, tp, slDist))
-      return false;
+      return -1;
    double lots = CalcLots(isBuy, side.entry, sl);
    if(lots <= 0)
-      return false;
+      return -1;
+   // let the broker expire the order at the end of the window where possible (also works while the terminal is off)
    ENUM_ORDER_TYPE_TIME ttype = ORDER_TIME_GTC;
-   if((SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE) & SYMBOL_EXPIRATION_GTC) == 0)
-      ttype = ORDER_TIME_DAY;
-   bool sent = isBuy ? g_trade.BuyStop(lots, side.entry, _Symbol, sl, tp, ttype, 0, TradeComment())
-                     : g_trade.SellStop(lots, side.entry, _Symbol, sl, tp, ttype, 0, TradeComment());
+   datetime expiry = 0;
+   long modes = SymbolInfoInteger(_Symbol, SYMBOL_EXPIRATION_MODE);
+   if(!g_noSpecifiedExpiry && (modes & SYMBOL_EXPIRATION_SPECIFIED) != 0 && g_s.windowEnd > TimeCurrent() + 120)
+     {
+      ttype  = ORDER_TIME_SPECIFIED;
+      expiry = g_s.windowEnd;
+     }
+   else
+      if((modes & SYMBOL_EXPIRATION_GTC) == 0)
+         ttype = ORDER_TIME_DAY;
+   bool sent = isBuy ? g_trade.BuyStop(lots, side.entry, _Symbol, sl, tp, ttype, expiry, InpComment)
+                     : g_trade.SellStop(lots, side.entry, _Symbol, sl, tp, ttype, expiry, InpComment);
    uint rc = g_trade.ResultRetcode();
    if(!sent || !RetcodeOK(rc))
      {
       Log(StringFormat("%s stop at %s failed: %u %s", isBuy ? "Buy" : "Sell", DoubleToString(side.entry, _Digits),
                        rc, g_trade.ResultRetcodeDescription()), true);
-      return false;
+      if(rc == TRADE_RETCODE_INVALID_EXPIRATION && ttype == ORDER_TIME_SPECIFIED)
+        {
+         g_noSpecifiedExpiry = true;   // broker refuses specified expiry: fall back to GTC + EA-side expiry
+         return 0;
+        }
+      if(rc == TRADE_RETCODE_TIMEOUT || rc == TRADE_RETCODE_CONNECTION || rc == 0)
+         return 0;                     // outcome unknown: the next attempt adopts the order if it exists
+      return -1;
      }
    ulong ticket = g_trade.ResultOrder();
    RegisterRisk(ticket, slDist);
@@ -955,7 +1154,7 @@ bool PlacePending(const bool isBuy)
       g_s.sell.ticket = ticket;
    Log(StringFormat("%s STOP %.2f lots at %s SL %s TP %s (ticket %I64u)", isBuy ? "BUY" : "SELL", lots,
                     DoubleToString(side.entry, _Digits), DoubleToString(sl, _Digits), DoubleToString(tp, _Digits), ticket), true);
-   return true;
+   return 1;
   }
 
 void MarkFilled(const bool isBuy)
@@ -964,36 +1163,69 @@ void MarkFilled(const bool isBuy)
      {
       g_s.buy.filled = true;
       g_s.buy.done   = true;
+      g_s.buy.signal = false;
       g_s.buy.ticket = 0;
      }
    else
      {
       g_s.sell.filled = true;
       g_s.sell.done   = true;
+      g_s.sell.signal = false;
       g_s.sell.ticket = 0;
      }
    RecolorBox(isBuy ? InpColUp : InpColDown);
    g_s.status = isBuy ? "broken UP - long" : "broken DOWN - short";
    if(!InpOCO)
       return;
-   GRBSide other;
-   GetSide(!isBuy, other);
-   if(other.ticket > 0)
-     {
-      if(g_trade.OrderDelete(other.ticket))
-         Log(StringFormat("OCO: deleted opposite pending %I64u", other.ticket), true);
-      else
-         Log(StringFormat("OCO: delete %I64u failed: %u %s", other.ticket, g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()), true);
-     }
+   // OCO: the opposite side is finished; its pending order is deleted (and retried) by Housekeeping()
    if(isBuy)
      {
-      g_s.sell.ticket = 0;
       g_s.sell.done   = true;
+      g_s.sell.signal = false;
      }
    else
      {
+      g_s.buy.done   = true;
+      g_s.buy.signal = false;
+     }
+   g_s.killPendings = true;
+  }
+
+void FailSide(const bool isBuy)
+  {
+   if(isBuy)
+     {
+      g_s.buy.fails++;
+      g_s.buy.signal = false;
+      if(g_s.buy.fails >= GRB_MAX_FAILS)
+        {
+         g_s.buy.done = true;
+         Log("Buy side given up after repeated failures", true);
+        }
+     }
+   else
+     {
+      g_s.sell.fails++;
+      g_s.sell.signal = false;
+      if(g_s.sell.fails >= GRB_MAX_FAILS)
+        {
+         g_s.sell.done = true;
+         Log("Sell side given up after repeated failures", true);
+        }
+     }
+  }
+
+void SideGone(const bool isBuy)
+  {
+   if(isBuy)
+     {
       g_s.buy.ticket = 0;
       g_s.buy.done   = true;
+     }
+   else
+     {
+      g_s.sell.ticket = 0;
+      g_s.sell.done   = true;
      }
   }
 
@@ -1006,20 +1238,20 @@ void CheckPendingStatus(const bool isBuy)
    if(OrderSelect(ticket))
       return; // still pending
    bool filled = false;
+   bool known  = false;
    if(HistoryOrderSelect(ticket))
      {
       ENUM_ORDER_STATE st = (ENUM_ORDER_STATE)HistoryOrderGetInteger(ticket, ORDER_STATE);
       filled = (st == ORDER_STATE_FILLED || st == ORDER_STATE_PARTIAL);
+      known  = true;
      }
-   else
+   if(!filled)
      {
-      // history not loaded yet: look for a position opened by this order
+      // history may lag behind: look for a position opened by this order
       ulong tk;
       for(int i = PositionsTotal() - 1; i >= 0; i--)
          if(SelectOurPosition(i, tk) && (ulong)PositionGetInteger(POSITION_IDENTIFIER) == ticket)
             filled = true;
-      if(!filled)
-         return; // unknown yet, retry next tick
      }
    if(filled)
      {
@@ -1027,19 +1259,11 @@ void CheckPendingStatus(const bool isBuy)
       MarkFilled(isBuy);
      }
    else
-     {
-      Log(StringFormat("%s stop %I64u disappeared (cancelled/expired/rejected)", isBuy ? "Buy" : "Sell", ticket), true);
-      if(isBuy)
+      if(known)
         {
-         g_s.buy.ticket = 0;
-         g_s.buy.done   = true;
+         Log(StringFormat("%s stop %I64u gone (cancelled/expired/rejected)", isBuy ? "Buy" : "Sell", ticket), true);
+         SideGone(isBuy);
         }
-      else
-        {
-         g_s.sell.ticket = 0;
-         g_s.sell.done   = true;
-        }
-     }
   }
 
 // place a pending order, or enter at market if the level is already crossed
@@ -1059,7 +1283,7 @@ void ServicePendingSide(const bool isBuy)
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double minDist = StopsDistance() + _Point;
-   bool crossed  = isBuy ? (ask >= side.entry) : (bid <= side.entry);
+   bool crossed   = isBuy ? (ask >= side.entry) : (bid <= side.entry);
    bool farEnough = isBuy ? (side.entry - ask > minDist) : (bid - side.entry > minDist);
 
    if(crossed)
@@ -1067,77 +1291,80 @@ void ServicePendingSide(const bool isBuy)
       double beyond = isBuy ? ask - side.entry : side.entry - bid;
       if(InpMaxChasePips > 0 && beyond <= Pips(InpMaxChasePips))
         {
-         if(MarketEntry(isBuy, "level already crossed"))
+         int r = MarketEntry(isBuy, "level already crossed");
+         if(r > 0)
             MarkFilled(isBuy);
          else
-            FailSide(isBuy);
+            if(r < 0)
+               FailSide(isBuy);
         }
       else
         {
          Log(StringFormat("%s level %s already passed by %.1f pips - side skipped", isBuy ? "Buy" : "Sell",
                           DoubleToString(side.entry, _Digits), beyond / g_pip), true);
-         if(isBuy)
-            g_s.buy.done = true;
-         else
-            g_s.sell.done = true;
+         SideGone(isBuy);
         }
       return;
      }
    if(!farEnough)
       return; // too close to place a stop order: wait for price to move away or cross
-   if(!PlacePending(isBuy))
+   int r = PlacePending(isBuy);
+   if(r < 0)
       FailSide(isBuy);
   }
 
-void FailSide(const bool isBuy)
-  {
-   if(isBuy)
-     {
-      g_s.buy.fails++;
-      if(g_s.buy.fails >= 3)
-        {
-         g_s.buy.done = true;
-         Log("Buy side given up after 3 failed attempts", true);
-        }
-     }
-   else
-     {
-      g_s.sell.fails++;
-      if(g_s.sell.fails >= 3)
-        {
-         g_s.sell.done = true;
-         Log("Sell side given up after 3 failed attempts", true);
-        }
-     }
-  }
-
-// close-confirmed entries: evaluate each finished RangeTF candle after the check time
+// close-confirmed entries: every candle that closed after the check time and within the window
 void ServiceCloseEntries()
   {
+   int tf = PeriodSeconds(InpRangeTF);
    datetime bar0 = iTime(_Symbol, InpRangeTF, 0);
-   if(bar0 == 0 || bar0 == g_lastBar)
-      return;
-   g_lastBar = bar0;
-   datetime bar1 = iTime(_Symbol, InpRangeTF, 1);
-   if(bar1 < g_s.checkServer)
-      return;
-   double close1 = iClose(_Symbol, InpRangeTF, 1);
-   if(close1 <= 0)
-      return;
-   if(g_s.buy.enabled && !g_s.buy.done && close1 >= g_s.buy.entry)
+   if(bar0 > 0 && bar0 != g_s.lastBar0)
      {
-      if(MarketEntry(true, "candle closed above range"))
+      // a signal only lives until the next candle closes
+      g_s.buy.signal  = false;
+      g_s.sell.signal = false;
+      MqlRates r[];
+      int n = CopyRates(_Symbol, InpRangeTF, 1, 64, r);   // closed candles, oldest first
+      if(n > 0)
+        {
+         g_s.lastBar0 = bar0;
+         for(int i = 0; i < n; i++)
+           {
+            datetime closeTime = r[i].time + tf;
+            if(r[i].time <= g_s.lastEval || closeTime <= g_s.checkServer || closeTime > g_s.windowEnd)
+               continue;
+            g_s.lastEval = r[i].time;
+            if(g_s.buy.enabled && !g_s.buy.done && r[i].close >= g_s.buy.entry)
+              {
+               g_s.buy.signal = true;
+               break;
+              }
+            if(g_s.sell.enabled && !g_s.sell.done && r[i].close <= g_s.sell.entry)
+              {
+               g_s.sell.signal = true;
+               break;
+              }
+           }
+        }
+     }
+   if(g_s.buy.signal && !g_s.buy.done)
+     {
+      int res = MarketEntry(true, "candle closed above range");
+      if(res > 0)
          MarkFilled(true);
       else
-         FailSide(true);
+         if(res < 0)
+            FailSide(true);
      }
    else
-      if(g_s.sell.enabled && !g_s.sell.done && close1 <= g_s.sell.entry)
+      if(g_s.sell.signal && !g_s.sell.done)
         {
-         if(MarketEntry(false, "candle closed below range"))
+         int res = MarketEntry(false, "candle closed below range");
+         if(res > 0)
             MarkFilled(false);
          else
-            FailSide(false);
+            if(res < 0)
+               FailSide(false);
         }
   }
 
@@ -1149,6 +1376,7 @@ void ResetSide(GRBSide &side)
    side.enabled = false;
    side.done    = true;
    side.filled  = false;
+   side.signal  = false;
    side.ticket  = 0;
    side.entry   = 0.0;
    side.fails   = 0;
@@ -1156,81 +1384,133 @@ void ResetSide(GRBSide &side)
 
 void ResetSetup()
   {
-   g_s.active      = false;
-   g_s.localDay    = 0;
-   g_s.checkServer = 0;
-   g_s.windowEnd   = 0;
-   g_s.firstBar    = 0;
-   g_s.top         = 0.0;
-   g_s.bottom      = 0.0;
-   g_s.atr         = 0.0;
+   g_s.active       = false;
+   g_s.killPendings = false;
+   g_s.localDay     = 0;
+   g_s.checkServer  = 0;
+   g_s.windowEnd    = 0;
+   g_s.firstBar     = 0;
+   g_s.lastEval     = 0;
+   g_s.lastBar0     = 0;
+   g_s.top          = 0.0;
+   g_s.bottom       = 0.0;
+   g_s.atr          = 0.0;
+   g_s.spread       = 0.0;
    ResetSide(g_s.buy);
    ResetSide(g_s.sell);
-   g_s.status      = "waiting for check time";
+   g_s.status       = "waiting for check time";
+  }
+
+// the setup takes no more entries: a restart must not resume it
+void Deactivate()
+  {
+   g_s.active = false;
+   if((datetime)GVGet("ARMED_DAY", 0) == g_s.localDay)
+      GVSet("ARMED_DAY", 0);
   }
 
 void EndSetup(const string why)
   {
    if(!g_s.active)
       return;
-   DeleteAllPendings(why);
-   g_s.active = false;
+   // record fills that happened since the last tick before giving up the orders
+   CheckPendingStatus(true);
+   CheckPendingStatus(false);
+   Deactivate();
+   g_s.killPendings = true;
    if(!g_s.buy.filled && !g_s.sell.filled)
       g_s.status = "no trade (" + why + ")";
    Log("Setup ended: " + why);
   }
 
-void BuildSetup(const datetime localDay, const datetime checkServer)
+// arm today's setup (entries, sides, box). resumed = rebuilt after a restart.
+void ArmSetup(const datetime localDay, const double top, const double bottom, const datetime firstBar,
+              const datetime lastBar, const double atr, const bool resumed)
+  {
+   g_s.localDay     = localDay;
+   g_s.checkServer  = CheckServerFor(localDay);
+   g_s.windowEnd    = WindowEndFor(localDay);
+   g_s.top          = top;
+   g_s.bottom       = bottom;
+   g_s.firstBar     = firstBar;
+   g_s.lastEval     = lastBar;
+   g_s.atr          = atr;
+   g_s.spread       = 0.0;
+   if(InpSpreadAdjust)
+      g_s.spread = MathMax(0.0, SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID));
+   g_s.buy.enabled  = InpAllowBuy;
+   g_s.sell.enabled = InpAllowSell;
+   g_s.buy.done     = !InpAllowBuy;
+   g_s.sell.done    = !InpAllowSell;
+   // pending buy stops trigger on the Ask, candle closes are Bid prices
+   double askAdj    = (InpEntryMode == GRB_ENTRY_PENDING) ? g_s.spread : 0.0;
+   g_s.buy.entry    = NormPrice(top + Pips(InpBuyBufferPips) + askAdj);
+   g_s.sell.entry   = NormPrice(bottom - Pips(InpSellBufferPips));
+   g_s.active       = true;
+   g_s.killPendings = false;
+   g_s.status       = resumed ? "resumed after restart" : "range armed";
+   if(!resumed)
+     {
+      GVSet("ARMED_DAY", (double)localDay);
+      GVSet("ARMED_VV", g_vv);
+      GVSet("ARMED_SPREAD", g_s.spread);
+     }
+   string info = StringFormat("%s  %.1f pips  %.2f ATR", TimeToString(localDay, TIME_DATE), (top - bottom) / g_pip,
+                              atr > 0 ? (top - bottom) / atr : 0.0);
+   DrawBox(firstBar, g_s.windowEnd, top, bottom, InpColForming, info);
+  }
+
+ENUM_GRB_BUILD BuildSetup(const datetime localDay, const datetime checkServer)
   {
    EndSetup("new day");
    ResetSetup();
    g_s.localDay    = localDay;
    g_s.checkServer = checkServer;
-   g_s.windowEnd   = WindowEndFor(localDay, checkServer);
-   datetime closeServer = CloseTimeFor(localDay);
    string day = TimeToString(localDay, TIME_DATE);
 
    if(g_halted)
      {
       g_s.status = "halted (daily loss limit)";
-      return;
+      return GRB_BUILD_DONE;
      }
    string why = "";
    if(!DayAllowed(localDay, checkServer, why))
      {
       g_s.status = "skipped: " + why;
       Log(day + " skipped: " + why);
-      return;
+      return GRB_BUILD_DONE;
      }
    if(HighImpactNews(checkServer - InpNewsMinBefore * 60, checkServer + InpNewsMinAfter * 60))
      {
       g_s.status = "skipped: high-impact news";
-      return;
+      return GRB_BUILD_DONE;
      }
 
    UpdateVV();
+   if(!g_vvReady)
+     {
+      g_s.status = "waiting: Variable Values ATR not ready";
+      Log(day + " Variable Values ATR not ready, retrying");
+      return GRB_BUILD_RETRY;
+     }
    double top, bottom;
-   datetime firstBar;
-   if(!MeasureRange(checkServer, top, bottom, firstBar, why))
+   datetime firstBar, lastBar;
+   bool transient;
+   if(!MeasureRange(checkServer, top, bottom, firstBar, lastBar, why, transient))
      {
       g_s.status = "no range: " + why;
-      Log(day + " no range: " + why, true);
-      return;
+      Log(day + " no range: " + why, !transient);
+      return transient ? GRB_BUILD_RETRY : GRB_BUILD_DONE;
      }
-   g_s.top      = top;
-   g_s.bottom   = bottom;
-   g_s.firstBar = firstBar;
-   double height = top - bottom;
-
    double atr = 0;
    if(!ReadATR(g_hATR, atr))
      {
-      g_s.status = "no range: ATR not ready";
-      Log(day + " ATR not ready", true);
-      return;
+      g_s.status = "waiting: ATR not ready";
+      Log(day + " ATR not ready, retrying");
+      return GRB_BUILD_RETRY;
      }
-   g_s.atr = atr;
 
+   double height = top - bottom;
    string reject = "";
    if(InpMaxRangeATR > 0 && height > InpMaxRangeATR * atr)
       reject = StringFormat("height %.2f ATR > max %.2f", height / atr, InpMaxRangeATR);
@@ -1240,42 +1520,29 @@ void BuildSetup(const datetime localDay, const datetime checkServer)
       else
          if(InpMinRangePips > 0 && height < Pips(InpMinRangePips))
             reject = StringFormat("height %.1f pips < min %.1f", height / g_pip, Pips(InpMinRangePips) / g_pip);
-
-   string info = StringFormat("%s  %.1f pips  %.2f ATR", day, height / g_pip, height / atr);
    if(reject != "")
      {
+      g_s.top    = top;
+      g_s.bottom = bottom;
       g_s.status = "range rejected: " + reject;
-      DrawBox(firstBar, checkServer, top, bottom, InpColRejected, info + "  rejected");
+      DrawBox(firstBar, checkServer, top, bottom, InpColRejected,
+              StringFormat("%s  %.1f pips  %.2f ATR  rejected", day, height / g_pip, height / atr));
       Log(day + " range rejected: " + reject, true);
-      return;
+      return GRB_BUILD_DONE;
      }
 
-   g_s.buy.enabled  = InpAllowBuy;
-   g_s.sell.enabled = InpAllowSell;
-   g_s.buy.done     = !InpAllowBuy;
-   g_s.sell.done    = !InpAllowSell;
-   g_s.buy.entry    = NormPrice(top + Pips(InpBuyBufferPips));
-   g_s.sell.entry   = NormPrice(bottom - Pips(InpSellBufferPips));
-   g_s.active       = true;
-   g_s.status       = "range armed";
-   g_closeServer    = closeServer;
-   g_lastBar        = iTime(_Symbol, InpRangeTF, 0);
-   DrawBox(firstBar, g_s.windowEnd, top, bottom, InpColForming, info);
-   Log(StringFormat("%s range %s - %s (%s), buy >= %s, sell <= %s, window until %s, VV factor %.3f", day,
-                    DoubleToString(bottom, _Digits), DoubleToString(top, _Digits), info,
+   ArmSetup(localDay, top, bottom, firstBar, lastBar, atr, false);
+   Log(StringFormat("%s range %s - %s (%.1f pips, %.2f ATR), buy >= %s, sell <= %s, window until %s, VV factor %.3f", day,
+                    DoubleToString(bottom, _Digits), DoubleToString(top, _Digits), height / g_pip, height / atr,
                     DoubleToString(g_s.buy.entry, _Digits), DoubleToString(g_s.sell.entry, _Digits),
                     TimeToString(g_s.windowEnd, TIME_DATE | TIME_MINUTES), g_vv), true);
+   return GRB_BUILD_DONE;
   }
 
 void ServiceSetup(const datetime now)
   {
    if(!g_s.active)
       return;
-   if(now >= g_s.windowEnd)
-     {
-      EndSetup("entry window over");
-      return;
-     }
    if(InpNewsFilter && !g_tester && now - g_lastNewsCheck >= 60)
      {
       g_lastNewsCheck = now;
@@ -1287,43 +1554,114 @@ void ServiceSetup(const datetime now)
      }
    if(InpEntryMode == GRB_ENTRY_PENDING)
      {
+      if(now >= g_s.windowEnd)
+        {
+         EndSetup("entry window over");
+         return;
+        }
       ServicePendingSide(true);
       ServicePendingSide(false);
      }
    else
-      ServiceCloseEntries();
-   if(g_s.buy.done && g_s.sell.done)
      {
-      g_s.active = false;
-      if(!g_s.buy.filled && !g_s.sell.filled)
-         g_s.status = "no trade (both sides skipped)";
+      // candles that closed up to the window end are still evaluated
+      ServiceCloseEntries();
+      if(now >= g_s.windowEnd && !g_s.buy.signal && !g_s.sell.signal)
+        {
+         EndSetup("entry window over");
+         return;
+        }
+      if(now >= g_s.windowEnd + PeriodSeconds(InpRangeTF))
+        {
+         EndSetup("entry window over");
+         return;
+        }
      }
+   if(g_s.buy.done && g_s.sell.done && g_s.active)
+     {
+      Deactivate();
+      if(!g_s.buy.filled && !g_s.sell.filled)
+         g_s.status = "no trade (both sides finished)";
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Housekeeping: window expiry, OCO, time exit, loss halt           |
+//| Derived from each order's / position's own time, retried until   |
+//| it succeeds, and independent of in-memory state (restart-safe).  |
+//+------------------------------------------------------------------+
+void Housekeeping(const datetime now)
+  {
+   if(now < g_nextCleanupTry)
+      return;
+   bool failed = false;
+   ulong tk;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!SelectOurOrder(i, tk))
+         continue;
+      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+      if(type != ORDER_TYPE_BUY_STOP && type != ORDER_TYPE_SELL_STOP)
+         continue;
+      datetime day = SetupDayOf((datetime)OrderGetInteger(ORDER_TIME_SETUP));
+      string why = "";
+      if(g_halted)
+         why = "daily loss limit";
+      else
+         if(now >= WindowEndFor(day))
+            why = "entry window over";
+         else
+            if(g_s.killPendings && day == g_s.localDay)
+               why = (g_s.buy.filled || g_s.sell.filled) ? "OCO" : "setup ended";
+      if(why == "")
+         continue;
+      if(g_trade.OrderDelete(tk))
+        {
+         Log(StringFormat("Deleted pending %I64u (%s)", tk, why), true);
+         if(tk == g_s.buy.ticket)
+            SideGone(true);
+         if(tk == g_s.sell.ticket)
+            SideGone(false);
+        }
+      else
+        {
+         failed = true;
+         Log(StringFormat("Delete pending %I64u failed (%s): %u %s - will retry", tk, why,
+                          g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()), true);
+        }
+     }
+
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      if(!SelectOurPosition(i, tk))
+         continue;
+      string why = "";
+      if(g_halted)
+         why = "daily loss limit";
+      else
+        {
+         datetime closeServer = CloseTimeFor(SetupDayOf((datetime)PositionGetInteger(POSITION_TIME)));
+         if(closeServer > 0 && now >= closeServer)
+            why = "close time";
+        }
+      if(why == "")
+         continue;
+      if(g_trade.PositionClose(tk, InpSlippagePoints))
+         Log(StringFormat("Closed position %I64u (%s)", tk, why), true);
+      else
+        {
+         failed = true;
+         Log(StringFormat("Close position %I64u failed (%s): %u %s - will retry", tk, why,
+                          g_trade.ResultRetcode(), g_trade.ResultRetcodeDescription()), true);
+        }
+     }
+   g_nextCleanupTry = failed ? now + GRB_RETRY_SECONDS : 0;
   }
 
 //+------------------------------------------------------------------+
 //| Position management                                              |
 //+------------------------------------------------------------------+
-double InitialRisk(const ulong positionId, const double openPrice, const double currentSL)
-  {
-   int n = ArraySize(g_riskIds);
-   for(int i = 0; i < n; i++)
-      if(g_riskIds[i] == positionId)
-         return g_riskVals[i];
-   double risk = 0;
-   if(HistoryOrderSelect(positionId))
-     {
-      double sl = HistoryOrderGetDouble(positionId, ORDER_SL);
-      double price = HistoryOrderGetDouble(positionId, ORDER_PRICE_OPEN);
-      if(sl > 0 && price > 0)
-         risk = MathAbs(price - sl);
-     }
-   if(risk <= 0 && currentSL > 0)
-      risk = MathAbs(openPrice - currentSL);
-   if(risk > 0)
-      RegisterRisk(positionId, risk);
-   return risk;
-  }
-
 double MgmtDistance(const double value, const double risk)
   {
    if(value <= 0)
@@ -1337,6 +1675,8 @@ void ManagePositions()
   {
    if(InpBEStart <= 0 && InpTrailStart <= 0)
       return;
+   if(InpMgmtUnits == GRB_UNITS_PIPS && !g_vvReady)
+      return; // pip distances would not be scaled yet
    double minDist = StopsDistance() + _Point;
    ulong tk;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -1350,7 +1690,7 @@ void ManagePositions()
       ulong  id    = (ulong)PositionGetInteger(POSITION_IDENTIFIER);
       double price = isBuy ? SymbolInfoDouble(_Symbol, SYMBOL_BID) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double profit = isBuy ? price - open : open - price;
-      double risk  = InitialRisk(id, open, sl);
+      double risk  = (InpMgmtUnits == GRB_UNITS_R) ? InitialRisk(id, isBuy, open, sl) : 0.0;
       double newSL = sl;
 
       double beStart = MgmtDistance(InpBEStart, risk);
@@ -1386,15 +1726,30 @@ void ManagePositions()
      }
   }
 
-void ServiceTimeExit(const datetime now)
+//+------------------------------------------------------------------+
+//| Daily loss guard (state kept in terminal global variables)       |
+//+------------------------------------------------------------------+
+void SaveGuard()
   {
-   if(g_closeServer <= 0 || now < g_closeServer)
+   GVSet("GUARD_DAY", (double)g_guardDay);
+   GVSet("GUARD_EQ", g_guardEquity);
+   GVSet("GUARD_HALT", g_halted ? 1.0 : 0.0);
+  }
+
+void LoadGuard(const datetime now)
+  {
+   datetime day = DayStart(now);
+   if((datetime)GVGet("GUARD_DAY", 0) == day && GVGet("GUARD_EQ", 0) > 0)
+     {
+      g_guardDay    = day;
+      g_guardEquity = GVGet("GUARD_EQ", 0);
+      g_halted      = GVGet("GUARD_HALT", 0) > 0.5;
       return;
-   g_closeServer = 0;
-   EndSetup("close time");
-   DeleteAllPendings("close time");
-   if(CountOurPositions() > 0)
-      CloseAllPositions("close time");
+     }
+   g_guardDay    = day;
+   g_guardEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+   g_halted      = false;
+   SaveGuard();
   }
 
 void DailyGuard(const datetime now)
@@ -1402,11 +1757,13 @@ void DailyGuard(const datetime now)
    datetime day = DayStart(now);
    if(day != g_guardDay)
      {
-      g_guardDay    = day;
-      g_guardEquity = AccountInfoDouble(ACCOUNT_EQUITY);
       if(g_halted)
          Log("Daily loss limit reset for the new day", true);
-      g_halted = false;
+      g_guardDay    = day;
+      g_guardEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+      g_halted      = false;
+      SaveGuard();
+      CleanupRiskRecords();
      }
    if(InpMaxDailyLossPct <= 0 || g_halted || g_guardEquity <= 0)
       return;
@@ -1414,11 +1771,11 @@ void DailyGuard(const datetime now)
    if(equity <= g_guardEquity * (1.0 - InpMaxDailyLossPct / 100.0))
      {
       g_halted = true;
+      SaveGuard();
       Log(StringFormat("Daily loss limit hit: equity %.2f vs day start %.2f - closing and pausing until tomorrow", equity, g_guardEquity), true);
       EndSetup("daily loss limit");
-      DeleteAllPendings("daily loss limit");
-      CloseAllPositions("daily loss limit");
       g_s.status = "halted (daily loss limit)";
+      g_nextCleanupTry = 0;   // Housekeeping() flattens now and keeps retrying while halted
      }
   }
 
@@ -1443,11 +1800,11 @@ void UpdatePanel(const datetime now)
    g_lastPanel = now;
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   string s = "Gold Range Breakout v1.00  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
+   string s = "Gold Range Breakout v1.10  |  " + _Symbol + "  magic " + (string)InpMagic + "\n";
    s += StringFormat("%s time %s  |  server %s\n", TZName(), TimeToString(ServerToLocal(now), TIME_MINUTES),
                      TimeToString(now, TIME_MINUTES));
-   s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f\n", InpCheckHour, InpCheckMinute, TZName(),
-                     TimeToString(checkServer, TIME_MINUTES), DoubleToString(g_pip, _Digits), g_vv);
+   s += StringFormat("Check %02d:%02d %s = %s server  |  pip %s  |  VV x%.3f%s\n", InpCheckHour, InpCheckMinute, TZName(),
+                     TimeToString(checkServer, TIME_MINUTES), DoubleToString(g_pip, _Digits), g_vv, g_vvReady ? "" : " (waiting)");
    if(g_s.top > 0)
       s += StringFormat("Range %s - %s  (%.1f pips)\n", DoubleToString(g_s.bottom, _Digits), DoubleToString(g_s.top, _Digits),
                         (g_s.top - g_s.bottom) / g_pip);
@@ -1455,9 +1812,10 @@ void UpdatePanel(const datetime now)
       s += StringFormat("Buy >= %s   Sell <= %s   until %s\n", DoubleToString(g_s.buy.entry, _Digits),
                         DoubleToString(g_s.sell.entry, _Digits), TimeToString(g_s.windowEnd, TIME_MINUTES));
    s += "Status: " + g_s.status + "\n";
-   s += StringFormat("Open positions: %d", CountOurPositions());
-   if(g_closeServer > 0)
-      s += "  |  time exit " + TimeToString(g_closeServer, TIME_MINUTES);
+   int n = CountOurPositions();
+   s += StringFormat("Open positions: %d", n);
+   if(n > 0 && InpCloseHour >= 0)
+      s += "  |  time exit " + TimeToString(CloseTimeFor(SetupDayOf(now)), TIME_DATE | TIME_MINUTES);
    if(InpMaxDailyLossPct > 0)
       s += StringFormat("\nDaily loss guard: %.1f%% of %.2f%s", InpMaxDailyLossPct, g_guardEquity, g_halted ? "  HALTED" : "");
    Comment(s);
@@ -1466,68 +1824,88 @@ void UpdatePanel(const datetime now)
 //+------------------------------------------------------------------+
 //| Restart recovery                                                 |
 //+------------------------------------------------------------------+
-// After a restart or timeframe change: never open a fresh setup late,
-// but keep managing today's pending orders and the time exit.
+// A setup that was armed before a restart / timeframe change / input edit
+// is rebuilt from the chart (the range is deterministic), the saved VV
+// factor, today's orders and today's deals. Otherwise the EA never opens a
+// fresh setup after the check time has passed.
 void RecoverOnInit(const datetime now)
   {
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
-   if(now < checkServer)
-      return;
-   g_lastDay = localDay;
+   if(now >= checkServer)
+      g_lastDay = localDay;              // today's check time is behind us
 
-   ulong buyTk = 0, sellTk = 0, tk;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   datetime day = SetupDayOf(now);        // the setup whose window could still be open
+   if((datetime)GVGet("ARMED_DAY", 0) != day || now >= WindowEndFor(day))
      {
-      if(!SelectOurOrder(i, tk))
-         continue;
-      ENUM_ORDER_TYPE type = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-      if(type == ORDER_TYPE_BUY_STOP)
-         buyTk = tk;
-      if(type == ORDER_TYPE_SELL_STOP)
-         sellTk = tk;
-     }
-   datetime closeServer = CloseTimeFor(localDay);
-   if((CountOurPositions() > 0 || buyTk > 0 || sellTk > 0) && closeServer > now)
-      g_closeServer = closeServer;
-   if(buyTk == 0 && sellTk == 0)
-     {
-      g_s.status = "started after check time - next setup tomorrow";
+      if(now >= checkServer)
+         g_s.status = "started after check time - next setup tomorrow";
       return;
      }
+
+   datetime check = CheckServerFor(day);
+   double top, bottom;
+   datetime firstBar, lastBar;
+   string why;
+   bool transient;
+   if(!MeasureRange(check, top, bottom, firstBar, lastBar, why, transient))
+     {
+      Log("Could not rebuild today's range after restart: " + why, true);
+      return;
+     }
+   double atr = 0;
+   ReadATR(g_hATR, atr);
+   g_vv      = GVGet("ARMED_VV", 1.0);
+   g_vvReady = true;
 
    ResetSetup();
-   g_s.localDay    = localDay;
-   g_s.checkServer = checkServer;
-   g_s.windowEnd   = WindowEndFor(localDay, checkServer);
-   string why;
-   double top, bottom;
-   datetime firstBar;
-   UpdateVV();
-   if(MeasureRange(checkServer, top, bottom, firstBar, why))
+   ArmSetup(day, top, bottom, firstBar, lastBar, atr, true);
+   double savedSpread = GVGet("ARMED_SPREAD", -1.0);
+   if(InpSpreadAdjust && savedSpread >= 0)
      {
-      g_s.top      = top;
-      g_s.bottom   = bottom;
-      g_s.firstBar = firstBar;
-      double atr = 0;
-      if(ReadATR(g_hATR, atr))
-         g_s.atr = atr;
+      g_s.spread    = savedSpread;
+      g_s.buy.entry = NormPrice(top + Pips(InpBuyBufferPips) + ((InpEntryMode == GRB_ENTRY_PENDING) ? savedSpread : 0.0));
      }
-   g_s.buy.enabled  = buyTk > 0;
-   g_s.buy.done     = buyTk == 0;
-   g_s.buy.ticket   = buyTk;
-   g_s.sell.enabled = sellTk > 0;
-   g_s.sell.done    = sellTk == 0;
-   g_s.sell.ticket  = sellTk;
-   if(buyTk > 0 && OrderSelect(buyTk))
-      g_s.buy.entry = OrderGetDouble(ORDER_PRICE_OPEN);
-   if(sellTk > 0 && OrderSelect(sellTk))
-      g_s.sell.entry = OrderGetDouble(ORDER_PRICE_OPEN);
-   g_s.active = true;
-   g_s.status = "resumed today's pending orders";
-   Log(StringFormat("Resumed today's setup (buy stop %I64u, sell stop %I64u)", buyTk, sellTk), true);
-   if(now >= g_s.windowEnd)
-      EndSetup("entry window over");
+
+   // sides already filled today (deals of this EA since the check time)
+   if(HistorySelect(check, now + 60))
+     {
+      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+        {
+         ulong d = HistoryDealGetTicket(i);
+         if(d == 0 || HistoryDealGetString(d, DEAL_SYMBOL) != _Symbol || (ulong)HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic)
+            continue;
+         if((ENUM_DEAL_ENTRY)HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN)
+            continue;
+         ENUM_DEAL_TYPE dt = (ENUM_DEAL_TYPE)HistoryDealGetInteger(d, DEAL_TYPE);
+         if(dt == DEAL_TYPE_BUY)
+            MarkFilled(true);
+         if(dt == DEAL_TYPE_SELL)
+            MarkFilled(false);
+        }
+     }
+   // re-attach to today's pending orders
+   if(!g_s.buy.done)
+     {
+      g_s.buy.ticket = FindOurPending(true, check);
+      if(g_s.buy.ticket > 0 && OrderSelect(g_s.buy.ticket))
+         g_s.buy.entry = OrderGetDouble(ORDER_PRICE_OPEN);
+     }
+   if(!g_s.sell.done)
+     {
+      g_s.sell.ticket = FindOurPending(false, check);
+      if(g_s.sell.ticket > 0 && OrderSelect(g_s.sell.ticket))
+         g_s.sell.entry = OrderGetDouble(ORDER_PRICE_OPEN);
+     }
+   // close mode: candles that closed while the EA was off are not traded late
+   g_s.lastBar0 = iTime(_Symbol, InpRangeTF, 0);
+   g_s.lastEval = (g_s.lastBar0 > 0) ? g_s.lastBar0 - PeriodSeconds(InpRangeTF) : lastBar;
+   if(g_s.buy.done && g_s.sell.done)
+      Deactivate();
+   Log(StringFormat("Resumed today's setup: range %s - %s, buy %s (stop %I64u), sell %s (stop %I64u)",
+                    DoubleToString(bottom, _Digits), DoubleToString(top, _Digits),
+                    g_s.buy.filled ? "filled" : (g_s.buy.done ? "done" : "open"), g_s.buy.ticket,
+                    g_s.sell.filled ? "filled" : (g_s.sell.done ? "done" : "open"), g_s.sell.ticket), true);
   }
 
 //+------------------------------------------------------------------+
@@ -1554,6 +1932,7 @@ int OnInit()
    g_optimizing = (bool)MQLInfoInteger(MQL_OPTIMIZATION);
    g_pip        = DetectPip();
    g_prefix     = StringFormat("GRB_%I64u_", InpMagic);
+   g_gv         = StringFormat("GRB_%I64u_%s_", InpMagic, _Symbol);
 
    g_trade.SetExpertMagicNumber(InpMagic);
    g_trade.SetDeviationInPoints(InpSlippagePoints);
@@ -1567,6 +1946,7 @@ int OnInit()
       Print("GoldRangeBreakout: cannot create ATR handle, error ", GetLastError());
       return INIT_FAILED;
      }
+   g_hVVATR = INVALID_HANDLE;
    if(InpVVDefaultATR > 0)
      {
       g_hVVATR = iATR(_Symbol, InpVVATRTF, InpVVATRPeriod);
@@ -1577,15 +1957,20 @@ int OnInit()
         }
      }
 
+   // globals keep their values across a timeframe change / input edit, so reset everything explicitly
    ResetSetup();
-   g_liveOffsetValid = false;
+   g_lastDay          = 0;
+   g_lastPanel        = 0;
+   g_lastNewsCheck    = 0;
+   g_nextCleanupTry   = 0;
+   g_noSpecifiedExpiry = false;
+   g_liveOffsetValid  = false;
    UpdateLiveOffset();
    datetime now = TimeCurrent();
-   g_guardDay    = DayStart(now);
-   g_guardEquity = AccountInfoDouble(ACCOUNT_EQUITY);
-   g_halted      = false;
+   LoadGuard(now);
    UpdateVV();
    RecoverOnInit(now);
+   CleanupRiskRecords();
 
    Log(StringFormat("Started: pip %s, check %02d:%02d %s, range %d x %s, %s entries", DoubleToString(g_pip, _Digits),
                     InpCheckHour, InpCheckMinute, TZName(), InpRangeCandles, EnumToString(InpRangeTF),
@@ -1612,20 +1997,25 @@ void OnTick()
   {
    datetime now = TimeCurrent();
    UpdateLiveOffset();
+   if(!g_vvReady)
+      UpdateVV();
    DailyGuard(now);
-   ServiceTimeExit(now);
+   Housekeeping(now);
    ManagePositions();
 
    datetime localDay, checkServer;
    TodayCheck(now, localDay, checkServer);
    if(localDay != g_lastDay && now >= checkServer)
      {
-      g_lastDay = localDay;
-      if(now - checkServer <= 15 * 60)
-         BuildSetup(localDay, checkServer);
+      if(now - checkServer <= GRB_LATE_SECONDS)
+        {
+         if(BuildSetup(localDay, checkServer) == GRB_BUILD_DONE)
+            g_lastDay = localDay;
+        }
       else
         {
-         // weekend / holiday / EA started late: no fresh setup for this day
+         // weekend / holiday / no ticks near the check time: no fresh setup for this day
+         g_lastDay = localDay;
          EndSetup("new day");
          ResetSetup();
          g_s.status = "no ticks near check time - skipped";
